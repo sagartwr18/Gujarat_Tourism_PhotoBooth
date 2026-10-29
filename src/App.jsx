@@ -8,13 +8,14 @@ const SELFIE_SEGMENTATION_SCRIPT = 'https://cdn.jsdelivr.net/npm/@mediapipe/self
 // is hosted separately from the API, so VITE_API_URL points at the API host.
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
-// How large the visitor's cut-out appears against the landmark.
-//   1    → the camera frame covers the whole canvas (the person fills the screen)
-//   0.5  → the person is drawn at half size, so the landmark stays visible
-//          above and around them (good on 1080x1920 kiosk screens).
-// The cut-out is anchored to the bottom-centre of the frame, which keeps the
-// person standing on the ground line instead of floating in the middle.
-const PERSON_ZOOM = 0.5
+// How large the visitor's cut-out appears against the landmark (1.0 = 100% full frame).
+const PERSON_ZOOM = 1.0
+
+// Detect mobile devices so we can adapt the AI model, camera constraints,
+// and render loop accordingly.
+const IS_MOBILE =
+  typeof navigator !== 'undefined' &&
+  /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
 
 // Append ?debug=1 to the URL to print the camera mode and the person frame
 // geometry on screen. Handy on a kiosk, where the browser console is not
@@ -598,11 +599,6 @@ function App() {
     }
   }, [])
 
-  const isVerticalRef = useRef(isVertical)
-  useEffect(() => {
-    isVerticalRef.current = isVertical
-  }, [isVertical])
-
   useEffect(() => {
     personCanvasRef.current = document.createElement('canvas')
   }, [])
@@ -651,7 +647,9 @@ function App() {
         })
 
         model.setOptions({
-          modelSelection: 1
+          // 0 = General / mobile model (256×256, works well on phones in portrait)
+          // 1 = Landscape model (144×256, optimised for desktop widescreen)
+          modelSelection: IS_MOBILE ? 0 : 1
         })
 
         model.onResults((results) => {
@@ -676,7 +674,7 @@ function App() {
     }
   }, [])
 
-  // Preload Selected Destination Background Image based on active orientation
+  // Preload Selected Destination Background Image (Always Horizontal HD for the 4th page booth)
   useEffect(() => {
     if (!selectedDestination) {
       backgroundImageRef.current = null
@@ -688,13 +686,14 @@ function App() {
     img.onload = () => {
       backgroundImageRef.current = img
     }
-    img.src = getDestinationImagePath(selectedDestination, isVertical)
+    // Always load Horizontal HD image for the 4th page photo booth
+    img.src = getDestinationImagePath(selectedDestination, false)
     if (img.complete && img.naturalWidth !== 0) {
       backgroundImageRef.current = img
     }
-  }, [selectedDestination, isVertical])
+  }, [selectedDestination])
 
-  // Draw Composited Canvas Frame (Adapting dynamically to 1080x1920 Vertical & 1920x1080 Horizontal)
+  // Draw Composited Canvas Frame (Always 1920x1080 16:9 Landscape Rectangle on desktop & mobile)
   const drawCompositedFrame = (video) => {
     if (!compositeCanvasRef.current || !personCanvasRef.current || !video) return
 
@@ -702,12 +701,9 @@ function App() {
     const personCanvas = personCanvasRef.current
     const selectedBgImage = backgroundImageRef.current
 
-    // Target dimensions matching client assets and active orientation:
-    // Vertical: 1080 x 1920 (9:16)
-    // Horizontal: 1920 x 1080 (16:9)
-    const isVert = isVerticalRef.current
-    const targetWidth = isVert ? 1080 : 1920
-    const targetHeight = isVert ? 1920 : 1080
+    // Standard 16:9 widescreen HD rectangle for both desktop and mobile
+    const targetWidth = 1920
+    const targetHeight = 1080
 
     if (compositeCanvas.width !== targetWidth || compositeCanvas.height !== targetHeight) {
       compositeCanvas.width = targetWidth
@@ -723,7 +719,7 @@ function App() {
 
     compositeCtx.clearRect(0, 0, targetWidth, targetHeight)
 
-    // 1. Draw Landmark Background (unmirrored full frame preserving client artwork)
+    // 1. Draw Landmark Background (Horizontal HD full frame)
     if (selectedBgImage && selectedBgImage.complete && selectedBgImage.naturalWidth !== 0) {
       compositeCtx.drawImage(selectedBgImage, 0, 0, targetWidth, targetHeight)
     } else {
@@ -731,24 +727,19 @@ function App() {
       compositeCtx.fillRect(0, 0, targetWidth, targetHeight)
     }
 
-    // 2. Compute Cover Scaling & Centering for Webcam Video onto Target Canvas
-    const { renderW, renderH, offsetX, offsetY } = computeCoverRect(
-      video.videoWidth || targetWidth,
-      video.videoHeight || targetHeight,
-      targetWidth,
-      targetHeight
-    )
+    const vW = video.videoWidth || targetWidth
+    const vH = video.videoHeight || targetHeight
 
-    const mask = segmentationMaskRef.current
-
-    // 3. Scale the cut-out down and anchor it to the bottom-centre, so the
-    //    landmark behind stays visible (PERSON_ZOOM = 1 fills the whole frame).
+    // 2. Compute Cover Scaling & Centering for Webcam Video onto 16:9 Canvas at 100% zoom
+    const { renderW, renderH } = computeCoverRect(vW, vH, targetWidth, targetHeight)
     const personW = renderW * PERSON_ZOOM
     const personH = renderH * PERSON_ZOOM
     const personX = (targetWidth - personW) / 2
     const personY = targetHeight - personH
 
-    // 4. Cutout and composite the user onto the landmark (mirrored like a selfie mirror)
+    const mask = segmentationMaskRef.current
+
+    // 3. Cutout and composite the user onto the landmark (mirrored like a selfie mirror)
     if (mask) {
       personCtx.clearRect(0, 0, targetWidth, targetHeight)
       drawMirroredCover(personCtx, mask, personX, personY, personW, personH, targetWidth)
@@ -757,12 +748,18 @@ function App() {
       personCtx.globalCompositeOperation = 'source-over'
       compositeCtx.drawImage(personCanvas, 0, 0, targetWidth, targetHeight)
     } else {
-      // Segmentation not ready yet: show the raw feed as a plain mirror.
-      drawMirroredCover(compositeCtx, video, offsetX, offsetY, renderW, renderH, targetWidth)
+      // While AI initializes, draw the video over the canvas at 100%
+      drawMirroredCover(compositeCtx, video, personX, personY, personW, personH, targetWidth)
     }
   }
 
   // Animation Frame Loop
+  //
+  // On mobile we throttle segmentation inference to ~20 FPS to avoid
+  // overwhelming the mobile GPU / WebGL context, which causes mask drops.
+  const lastSegTimeRef = useRef(0)
+  const SEG_INTERVAL_MS = IS_MOBILE ? 50 : 0 // 50 ms ≈ 20 FPS on mobile
+
   const runFrameLoop = () => {
     const video = videoRef.current
     if (!video || !isCameraOpenRef.current) return
@@ -774,14 +771,26 @@ function App() {
 
     drawCompositedFrame(video)
 
-    if (segmentationReadyRef.current && segmentationModelRef.current && !segmentationBusyRef.current) {
+    const now = performance.now()
+    const canSend =
+      segmentationReadyRef.current &&
+      segmentationModelRef.current &&
+      !segmentationBusyRef.current &&
+      now - lastSegTimeRef.current >= SEG_INTERVAL_MS
+
+    if (canSend) {
       segmentationBusyRef.current = true
+      lastSegTimeRef.current = now
       segmentationModelRef.current
         .send({ image: video })
         .catch((err) => {
           console.error('Segmentation frame failed:', err)
           segmentationBusyRef.current = false
-          segmentationMaskRef.current = null
+          // On mobile, keep the last good mask instead of clearing it,
+          // so the background remains visible even if a single frame errors.
+          if (!IS_MOBILE) {
+            segmentationMaskRef.current = null
+          }
         })
     }
 
@@ -792,17 +801,13 @@ function App() {
     try {
       setError(null)
 
-      // Ask for the tallest field of view the camera can give.
-      //
-      // On a portrait kiosk the canvas is 9:16, so the compositor only ever
-      // crops the sides — never the top. A 4:3 stream keeps the full sensor
-      // height, while asking for 9:16 (or letting the browser settle on 16:9)
-      // makes many webcams return a mode that is a vertical crop of the
-      // sensor, which cuts the top of the head off for anyone standing close.
+      // Request 16:9 widescreen HD stream for the 16:9 rectangular photo booth
       const constraints = {
-        video: isVertical
-          ? { width: { ideal: 1440 }, height: { ideal: 1080 }, resizeMode: 'none', facingMode: 'user' }
-          : { width: { ideal: 1920 }, height: { ideal: 1080 }, resizeMode: 'none', facingMode: 'user' }
+        video: {
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          facingMode: 'user'
+        }
       }
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
@@ -820,19 +825,18 @@ function App() {
 
       if (DEBUG_CAMERA) {
         const settings = track?.getSettings?.() || {}
-        const targetWidth = isVertical ? 1080 : 1920
-        const targetHeight = isVertical ? 1920 : 1080
-        const cover = computeCoverRect(
-          settings.width || targetWidth,
-          settings.height || targetHeight,
-          targetWidth,
-          targetHeight
-        )
+        const targetWidth = 1920
+        const targetHeight = 1080
+        const sW = settings.width || targetWidth
+        const sH = settings.height || targetHeight
+        const cover = computeCoverRect(sW, sH, targetWidth, targetHeight)
+        const pW = Math.round(cover.renderW * PERSON_ZOOM)
+        const pH = Math.round(cover.renderH * PERSON_ZOOM)
         setDebugCamera({
-          source: `${settings.width || '?'}×${settings.height || '?'}`,
+          source: `${sW}×${sH}`,
           canvas: `${targetWidth}×${targetHeight}`,
-          personFrame: `${Math.round(cover.renderW * PERSON_ZOOM)}×${Math.round(cover.renderH * PERSON_ZOOM)}`,
-          personTop: Math.round(targetHeight - cover.renderH * PERSON_ZOOM),
+          personFrame: `${pW}×${pH}`,
+          personTop: Math.round(targetHeight - pH),
           zoom: capabilities.zoom ? `${capabilities.zoom.min}–${capabilities.zoom.max}` : 'not supported'
         })
       }
@@ -1175,8 +1179,8 @@ function App() {
         )}
 
         <div className="booth-main-container">
-          <div className={`camera-card ${isVertical ? 'card-vertical' : 'card-horizontal'}`}>
-            <div className={`camera-preview ${isVertical ? 'preview-vertical' : 'preview-horizontal'}`}>
+          <div className="camera-card card-horizontal">
+            <div className="camera-preview preview-horizontal">
               {/* Countdown hint — the preview stays completely clear */}
               {isCountingDown && (
                 <div className="countdown-hint" role="status" aria-live="polite">
@@ -1195,7 +1199,7 @@ function App() {
                     <div
                       className="background-overlay"
                       style={{
-                        backgroundImage: `url(${getDestinationImagePath(selectedDestination, isVertical)})`
+                        backgroundImage: `url(${getDestinationImagePath(selectedDestination, false)})`
                       }}
                     ></div>
                   )}
