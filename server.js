@@ -210,8 +210,8 @@ Gujarat Tourism`,
 
     const info = await transporter.sendMail(mailOptions)
 
-    const totalElapsed = Date.now() - startTime
-    console.log(`✅ [SMTP SUCCESS] Accepted by mail server in ${totalElapsed}ms`)
+    const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(2)
+    console.log(`✅ [SMTP SUCCESS] Accepted by mail server in ${elapsedSeconds}s`)
     console.log(`   • Message ID : ${info.messageId}`)
     console.log(`   • Accepted   : ${info.accepted?.length || 0} recipient(s)`)
     if (info.rejected && info.rejected.length > 0) {
@@ -231,8 +231,8 @@ Gujarat Tourism`,
       console.error('[DATABASE] Background save failed:', err.message)
     })
   } catch (error) {
-    const totalElapsed = Date.now() - startTime
-    console.error(`\n💥 [EMAIL DISPATCH FAILED] (${totalElapsed}ms)`)
+    const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(2)
+    console.error(`\n💥 [EMAIL DISPATCH FAILED] (${elapsedSeconds}s)`)
     console.error(`   • Error Message : ${error.message}`)
     if (error.code) console.error(`   • Error Code    : ${error.code}`)
     if (error.response) console.error(`   • SMTP Response : ${error.response}`)
