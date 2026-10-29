@@ -90,16 +90,18 @@ Both must be configured, in this order.
 
    | Key | Value |
    |---|---|
-   | `SMTP_HOST` | e.g. `smtp.gmail.com` |
-   | `SMTP_PORT` | `587` |
-   | `SMTP_SECURE` | `false` |
-   | `SMTP_USER` | sending mailbox |
-   | `SMTP_PASS` | app password (never the account password) |
-   | `MAIL_FROM` | `"Vibrant Gujarat Photo Booth <mailbox>"` |
+   | `EMAIL_API_KEY` | Brevo API key (recommended transport) |
+   | `MAIL_FROM_ADDRESS` | sender verified in Brevo |
+   | `MAIL_FROM_NAME` | e.g. `Vibrant Gujarat Photo Booth` |
    | `SUPABASE_URL` | project URL |
    | `SUPABASE_SERVICE_ROLE_KEY` | service-role key (server only) |
    | `ALLOWED_ORIGINS` | `https://<project>.vercel.app` (fill in after step 3) |
    | `NODE_VERSION` | `22` |
+
+   Email is sent through the **Brevo HTTP API** because Render's free tier blocks
+   outbound SMTP ports (25/465/587). If `EMAIL_API_KEY` is absent the server falls
+   back to SMTP and expects `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`
+   and `MAIL_FROM` instead.
 
 6. Verify `https://<service>.onrender.com/api/health` returns `{"status":"ok",...}`.
 

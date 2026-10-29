@@ -55,19 +55,49 @@ app.use(cors(corsOptions))
 // keeps the request body limit tight.
 app.use(express.json({ limit: '8mb' }))
 
-const requiredEnv = [
-  'SMTP_HOST',
-  'SMTP_PORT',
-  'SMTP_USER',
-  'SMTP_PASS',
-  'MAIL_FROM'
-]
+// ---------------------------------------------------------------------------
+// Email transport
+// The Brevo HTTP API is the default because most PaaS hosts (Render's free
+// tier, for example) block outbound SMTP ports 25/465/587. SMTP stays as a
+// fallback so local development can keep using an app password.
+// ---------------------------------------------------------------------------
+const parseMailFrom = (value) => {
+  const raw = String(value || '').trim()
+  const match = raw.match(/^"?([^"<]*)"?\s*<([^>]+)>$/)
+  if (match) {
+    return { name: match[1].trim(), email: match[2].trim() }
+  }
+  return { name: '', email: raw }
+}
+
+const EMAIL_API_KEY = (process.env.EMAIL_API_KEY || '').trim()
+const EMAIL_API_URL = (process.env.EMAIL_API_URL || 'https://api.brevo.com/v3/smtp/email').trim()
+const EMAIL_API_TIMEOUT_MS = Number(process.env.EMAIL_API_TIMEOUT_MS || 20000)
+
+const parsedMailFrom = parseMailFrom(process.env.MAIL_FROM)
+const MAIL_FROM_ADDRESS = (process.env.MAIL_FROM_ADDRESS || '').trim() || parsedMailFrom.email
+const MAIL_FROM_NAME = (process.env.MAIL_FROM_NAME || '').trim() || parsedMailFrom.name || 'Gujarat Tourism'
+
+// A Brevo key plus a sender address is all the HTTP API needs.
+const useEmailApi = Boolean(EMAIL_API_KEY && MAIL_FROM_ADDRESS)
+
+const requiredEnv = useEmailApi
+  ? ['EMAIL_API_KEY']
+  : ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'MAIL_FROM']
 
 for (const key of requiredEnv) {
   if (!process.env[key]) {
     console.warn(`[server] Missing env var: ${key}`)
   }
 }
+
+if (useEmailApi && !MAIL_FROM_ADDRESS) {
+  console.warn('[server] Missing env var: MAIL_FROM_ADDRESS (or a MAIL_FROM containing an address)')
+}
+
+console.log(
+  `[server] Email transport: ${useEmailApi ? 'Brevo HTTP API' : 'SMTP'}`
+)
 
 // Lightweight in-memory rate limit. The email endpoint is public once the
 // frontend is hosted separately, so this protects the SMTP account from abuse.
@@ -114,11 +144,90 @@ const transporter = nodemailer.createTransport({
   port: Number(process.env.SMTP_PORT || 587),
   secure: process.env.SMTP_SECURE === 'true',
   family: 4,
+  // Fail fast instead of hanging for nodemailer's 120s default.
+  connectionTimeout: 15000,
+  greetingTimeout: 15000,
+  socketTimeout: 30000,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
   }
 })
+
+// Brevo REST API. Attachments are sent as base64, which the provider accepts
+// directly, so the image never has to be decoded and re-encoded.
+const sendViaEmailApi = async ({ to, subject, text, html, attachment }) => {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), EMAIL_API_TIMEOUT_MS)
+
+  try {
+    const response = await fetch(EMAIL_API_URL, {
+      method: 'POST',
+      headers: {
+        'api-key': EMAIL_API_KEY,
+        'content-type': 'application/json',
+        accept: 'application/json'
+      },
+      body: JSON.stringify({
+        sender: { name: MAIL_FROM_NAME, email: MAIL_FROM_ADDRESS },
+        to: [{ email: to }],
+        subject,
+        textContent: text,
+        htmlContent: html,
+        attachment: attachment
+          ? [{ name: attachment.filename, content: attachment.base64Data }]
+          : undefined
+      }),
+      signal: controller.signal
+    })
+
+    const rawBody = await response.text()
+    let data = {}
+    try {
+      data = rawBody ? JSON.parse(rawBody) : {}
+    } catch {
+      data = { raw: rawBody }
+    }
+
+    if (!response.ok) {
+      const detail = data?.message || data?.error || data?.raw || `HTTP ${response.status}`
+      const error = new Error(`Email API rejected the message: ${detail}`)
+      error.code = `HTTP_${response.status}`
+      throw error
+    }
+
+    return { messageId: data?.messageId || null, transport: 'brevo' }
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(`Email API timed out after ${EMAIL_API_TIMEOUT_MS / 1000}s`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+const sendViaSmtp = async ({ to, subject, text, html, attachment }) => {
+  const info = await transporter.sendMail({
+    from: process.env.MAIL_FROM || `${MAIL_FROM_NAME} <${MAIL_FROM_ADDRESS}>`,
+    to,
+    subject,
+    text,
+    html,
+    attachments: attachment
+      ? [{ filename: attachment.filename, content: attachment.buffer, contentType: attachment.mimeType }]
+      : []
+  })
+
+  return {
+    messageId: info.messageId,
+    transport: 'smtp',
+    accepted: info.accepted,
+    rejected: info.rejected
+  }
+}
+
+const sendEmail = (options) => (useEmailApi ? sendViaEmailApi(options) : sendViaSmtp(options))
 
 let supabase = null
 if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
@@ -134,7 +243,8 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
     uptimeSeconds: Math.round(process.uptime()),
-    supabase: Boolean(supabase)
+    supabase: Boolean(supabase),
+    emailTransport: useEmailApi ? 'brevo' : 'smtp'
   })
 })
 
@@ -249,18 +359,17 @@ app.post('/api/send-email', async (req, res) => {
     console.log(`   • Attachment File : ${attachmentFilename}`)
     console.log(`   • Attachment Size : ${sizeKB} KB (${sizeMB} MB)`)
 
-    // Step 1: Send via Nodemailer SMTP
     const subject = `Your Vibrant Gujarat Memory • ${placeName}`
-    console.log(`\n🚀 [SMTP DISPATCH] Sending email via ${process.env.SMTP_HOST}:${process.env.SMTP_PORT || 587}...`)
-    console.log(`   • From   : ${process.env.MAIL_FROM}`)
+    const transportLabel = useEmailApi
+      ? `Brevo HTTP API (${EMAIL_API_URL})`
+      : `SMTP (${process.env.SMTP_HOST}:${process.env.SMTP_PORT || 587})`
+
+    console.log(`\n🚀 [DISPATCH] Sending email via ${transportLabel}...`)
+    console.log(`   • From   : ${MAIL_FROM_NAME} <${MAIL_FROM_ADDRESS}>`)
     console.log(`   • To     : ${maskEmail(recipient)}`)
     console.log(`   • Subject: ${subject}`)
 
-    const mailOptions = {
-      from: process.env.MAIL_FROM,
-      to: recipient,
-      subject,
-      text: `Greetings from Gujarat Tourism!
+    const textBody = `Greetings from Gujarat Tourism!
 
 Thank you for visiting our stall and taking the time to explore the incredible experiences Gujarat has to offer. It was a pleasure having you with us, and we hope you enjoyed discovering the vibrant spirit of Gujarat.
 
@@ -271,8 +380,9 @@ If this picture has inspired you to discover more, we invite you to experience G
 Come, explore the land of legends, culture, and endless discoveries. We look forward to welcoming you to Gujarat soon!
 
 Warm regards,
-Gujarat Tourism`,
-      html: `
+Gujarat Tourism`
+
+    const htmlBody = `
         <div style="font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.6; color: #222222;">
           <p>Greetings from Gujarat Tourism!</p>
           <p>Thank you for visiting our stall and taking the time to explore the incredible experiences Gujarat has to offer. It was a pleasure having you with us, and we hope you enjoyed discovering the vibrant spirit of Gujarat.</p>
@@ -281,32 +391,37 @@ Gujarat Tourism`,
           <p>Come, explore the land of legends, culture, and endless discoveries. We look forward to welcoming you to Gujarat soon!</p>
           <p>Warm regards,<br />Gujarat Tourism</p>
         </div>
-      `,
-      attachments: [
-        {
-          filename: attachmentFilename,
-          content: imageBuffer,
-          contentType: parsedImage.mimeType
-        }
-      ]
-    }
+      `
 
-    const info = await transporter.sendMail(mailOptions)
+    const result = await sendEmail({
+      to: recipient,
+      subject,
+      text: textBody,
+      html: htmlBody,
+      attachment: {
+        filename: attachmentFilename,
+        base64Data: parsedImage.base64Data,
+        mimeType: parsedImage.mimeType,
+        buffer: imageBuffer
+      }
+    })
 
     const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(2)
-    console.log(`✅ [SMTP SUCCESS] Accepted by mail server in ${elapsedSeconds}s`)
-    console.log(`   • Message ID : ${info.messageId}`)
-    console.log(`   • Accepted   : ${info.accepted?.length || 0} recipient(s)`)
-    if (info.rejected && info.rejected.length > 0) {
-      console.warn(`   • Rejected   : ${info.rejected.length} recipient(s)`)
+    console.log(`✅ [EMAIL SENT] Accepted by ${result.transport} in ${elapsedSeconds}s`)
+    console.log(`   • Message ID : ${result.messageId || '(not returned)'}`)
+    if (result.accepted) {
+      console.log(`   • Accepted   : ${result.accepted.length} recipient(s)`)
+    }
+    if (result.rejected && result.rejected.length > 0) {
+      console.warn(`   • Rejected   : ${result.rejected.length} recipient(s)`)
     }
     console.log('═'.repeat(65) + '\n')
 
-    // Respond as soon as SMTP accepts the message. The Supabase write happens
-    // in the background so the visitor never waits on a database round-trip.
+    // Respond as soon as the provider accepts the message. The Supabase write
+    // happens in the background so the visitor never waits on a DB round-trip.
     res.status(200).json({
       message: 'Photo sent successfully!',
-      messageId: info.messageId,
+      messageId: result.messageId,
       dbStatus: 'queued'
     })
 
@@ -323,7 +438,11 @@ Gujarat Tourism`,
     console.log('═'.repeat(65) + '\n')
 
     if (res.headersSent) return
-    return res.status(500).json({ message: 'Failed to send email. Check SMTP settings.' })
+    return res.status(500).json({
+      message: useEmailApi
+        ? 'Failed to send email. Please try again in a moment.'
+        : 'Failed to send email. Check SMTP settings.'
+    })
   }
 })
 
