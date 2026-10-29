@@ -1100,30 +1100,23 @@ function App() {
         <div className="booth-main-container">
           <div className={`camera-card ${isVertical ? 'card-vertical' : 'card-horizontal'}`}>
             <div className={`camera-preview ${isVertical ? 'preview-vertical' : 'preview-horizontal'}`}>
-              {/* Countdown HUD — camera stays fully visible */}
-              {isCountingDown && typeof countdown === 'number' && (
-                <>
-                  <div className="countdown-progress" aria-hidden="true"></div>
-                  <div className="countdown-hud" role="status" aria-live="polite">
-                    <div className="countdown-ring-wrap">
-                      <svg className="countdown-ring" viewBox="0 0 100 100" aria-hidden="true">
-                        <circle className="countdown-ring-track" cx="50" cy="50" r="44" />
-                        <circle className="countdown-ring-progress" cx="50" cy="50" r="44" />
+              {/* Countdown Overlay — soft vignette, camera stays visible */}
+              {isCountingDown && (
+                <div className="countdown-overlay" role="status" aria-live="polite">
+                  {typeof countdown === 'number' ? (
+                    <>
+                      <div key={countdown} className="countdown-number">{countdown}</div>
+                      <p className="countdown-sub">Get ready for your Gujarat keepsake!</p>
+                    </>
+                  ) : (
+                    <div className="countdown-smile">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                        <circle cx="12" cy="13" r="4"></circle>
                       </svg>
-                      <span key={countdown} className="countdown-value">{countdown}</span>
+                      <span>Smile!</span>
                     </div>
-                    <span className="countdown-label">Get ready…</span>
-                  </div>
-                </>
-              )}
-
-              {isCountingDown && countdown === 'Smile!' && (
-                <div className="countdown-smile" role="status" aria-live="assertive">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                    <circle cx="12" cy="13" r="4"></circle>
-                  </svg>
-                  <span>Smile!</span>
+                  )}
                 </div>
               )}
 
