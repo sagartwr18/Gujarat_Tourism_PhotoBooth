@@ -9,7 +9,7 @@ const SELFIE_SEGMENTATION_SCRIPT = 'https://cdn.jsdelivr.net/npm/@mediapipe/self
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
 // How large the visitor's cut-out appears against the landmark (1.0 = 100% full frame).
-const PERSON_ZOOM_VERTICAL = 0.65
+const PERSON_ZOOM_VERTICAL = 0.8
 const PERSON_ZOOM_HORIZONTAL = 1.0
 const getPersonZoom = (vertical) => (vertical ? PERSON_ZOOM_VERTICAL : PERSON_ZOOM_HORIZONTAL)
 
@@ -758,6 +758,19 @@ function App() {
       personCtx.filter = 'none'
       personCtx.globalCompositeOperation = 'source-in'
       drawMirroredCover(personCtx, video, personX, personY, personW, personH, targetWidth)
+
+      // Soften the hard top edge of the camera frame when the person is shrunk
+      if (personY > 0) {
+        const regionH = targetHeight - personY
+        const fadeH = Math.min(personH * 0.15, 140)
+        const g = personCtx.createLinearGradient(0, personY, 0, targetHeight)
+        g.addColorStop(0, 'rgba(0,0,0,0)')
+        g.addColorStop(fadeH / regionH, 'rgba(0,0,0,1)')
+        g.addColorStop(1, 'rgba(0,0,0,1)')
+        personCtx.globalCompositeOperation = 'destination-in'
+        personCtx.fillStyle = g
+        personCtx.fillRect(0, personY, targetWidth, regionH)
+      }
       personCtx.globalCompositeOperation = 'source-over'
       compositeCtx.drawImage(personCanvas, 0, 0, targetWidth, targetHeight)
     } else {
@@ -1209,6 +1222,12 @@ function App() {
                 <div className="countdown-hint" role="status" aria-live="polite">
                   <span className="countdown-hint-dot" aria-hidden="true"></span>
                   <span>Look at the camera…</span>
+                </div>
+              )}
+
+              {isCameraOpen && !capturedImage && !isCountingDown && (
+                <div className="countdown-hint" role="note">
+                  <span>Hold the phone a little farther away</span>
                 </div>
               )}
 
