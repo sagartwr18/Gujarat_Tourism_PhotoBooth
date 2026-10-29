@@ -177,31 +177,26 @@ app.post('/api/send-email', async (req, res) => {
       from: process.env.MAIL_FROM,
       to: recipient,
       subject,
-      text: `Kem Chho! Thank you for visiting the Vibrant Gujarat AI Photo Booth. Your souvenir photo from ${placeName} is attached. Padharo Gujarat!`,
+      text: `Greetings from Gujarat Tourism!
+
+Thank you for visiting our stall and taking the time to explore the incredible experiences Gujarat has to offer. It was a pleasure having you with us, and we hope you enjoyed discovering the vibrant spirit of Gujarat.
+
+As a token of the wonderful memories created, please find attached your selfie taken at our stall. We hope it brings a smile to your face and reminds you of Gujarat’s rich heritage, colourful traditions, architectural marvels, and warm hospitality.
+
+If this picture has inspired you to discover more, we invite you to experience Gujarat beyond the stall. From the timeless beauty of the Rann of Kutch and the majestic Statue of Unity to ancient temples, vibrant festivals, wildlife encounters, and pristine coastlines, Gujarat has something extraordinary waiting for you.
+
+Come, explore the land of legends, culture, and endless discoveries. We look forward to welcoming you to Gujarat soon!
+
+Warm regards,
+Gujarat Tourism`,
       html: `
-        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: #0c1222; color: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #ea580c;">
-          <div style="background: linear-gradient(135deg, #ea580c 0%, #f59e0b 50%, #0d9488 100%); padding: 32px 24px; text-align: center;">
-            <h1 style="margin: 0; font-size: 26px; letter-spacing: 1px; color: #ffffff;">VIBRANT GUJARAT</h1>
-            <p style="margin: 6px 0 0; font-size: 14px; opacity: 0.95; color: #ffffff; font-weight: 500;">AI PHOTO BOOTH SOUVENIR</p>
-          </div>
-          <div style="padding: 28px 24px;">
-            <h2 style="margin-top: 0; color: #fbbf24; font-size: 20px;">Kem Chho! Greetings from Gujarat!</h2>
-            <p style="font-size: 15px; line-height: 1.6; color: #e2e8f0;">
-              Thank you for capturing your special moment with the <strong>${placeName}</strong> virtual backdrop. We hope this memory inspires your next journey to the Land of Legends!
-            </p>
-            <div style="background: rgba(255, 255, 255, 0.05); padding: 16px; border-radius: 12px; margin: 20px 0; border-left: 4px solid #ea580c;">
-              <p style="margin: 0; font-size: 14px; color: #cbd5e1;">
-                <strong>Attached:</strong> Your high-definition photo keepsake with authentic Gujarat framing.
-              </p>
-            </div>
-            <p style="font-size: 14px; color: #94a3b8; margin-top: 24px; text-align: center;">
-              <em>"Kuchh din toh gujaro Gujarat mein!"</em><br/>
-              ગરવી ગુજરાત • Proudly Created with AI Virtual Reality
-            </p>
-          </div>
-          <div style="background: #070b14; padding: 16px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid rgba(255, 255, 255, 0.08);">
-            © ${new Date().getFullYear()} Vibrant Gujarat Tourism • AI Photo Booth
-          </div>
+        <div style="font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.6; color: #222222;">
+          <p>Greetings from Gujarat Tourism!</p>
+          <p>Thank you for visiting our stall and taking the time to explore the incredible experiences Gujarat has to offer. It was a pleasure having you with us, and we hope you enjoyed discovering the vibrant spirit of Gujarat.</p>
+          <p>As a token of the wonderful memories created, please find attached your selfie taken at our stall. We hope it brings a smile to your face and reminds you of Gujarat’s rich heritage, colourful traditions, architectural marvels, and warm hospitality.</p>
+          <p>If this picture has inspired you to discover more, we invite you to experience Gujarat beyond the stall. From the timeless beauty of the Rann of Kutch and the majestic Statue of Unity to ancient temples, vibrant festivals, wildlife encounters, and pristine coastlines, Gujarat has something extraordinary waiting for you.</p>
+          <p>Come, explore the land of legends, culture, and endless discoveries. We look forward to welcoming you to Gujarat soon!</p>
+          <p>Warm regards,<br />Gujarat Tourism</p>
         </div>
       `,
       attachments: [
