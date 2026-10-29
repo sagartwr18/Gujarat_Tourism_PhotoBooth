@@ -958,29 +958,33 @@ body {
   border-radius: 20px;
   padding: 1.5rem;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(0, 0, 0, 0.03);
-  width: min(94vw, 940px);
+  width: min(100%, 940px);
   transition: width 0.3s ease;
 }
 
 /* Vertical Screen Layouts (e.g. 1080x1920 Kiosk or Portrait displays) */
 .camera-card.card-vertical {
-  width: fit-content;
-  max-width: 94vw;
+  /* Width is driven by the preview: the card is as wide as the 9:16 preview
+     plus its own padding/border, but never wider than the space actually
+     available inside .detection-content (which has its own padding). */
+  width: min(100%, calc(70vh * 9 / 16 + 3rem + 2px));
+  max-width: 100%;
   margin: 0 auto;
 }
 
 .camera-preview.preview-vertical {
   aspect-ratio: 9 / 16;
-  /* Height-driven so the preview fills large portrait kiosks (43"/55"/65")
-     while staying sane on phones and tablets. */
-  width: min(92vw, calc(70vh * 9 / 16));
+  /* Fill the card, but never get so tall that it pushes the controls off
+     screen on short/landscape-ish viewports. */
+  width: 100%;
+  max-width: calc(70vh * 9 / 16);
   height: auto;
   margin: 0 auto;
 }
 
 /* Horizontal Screen Layouts (e.g. 1920x1080 Landscape) */
 .camera-card.card-horizontal {
-  width: min(94vw, 960px);
+  width: min(100%, 960px);
   margin: 0 auto;
 }
 
@@ -1503,6 +1507,10 @@ body {
   }
 
   .camera-card {
+    padding: 1rem;
+  }
+
+  .detection-content {
     padding: 1rem;
   }
 }
