@@ -1003,6 +1003,16 @@ body {
   margin: 0 auto;
 }
 
+/* Phone portrait: use the full 3:4 front-camera view instead of a cropped 9:16 */
+.camera-preview.preview-vertical.preview-phone {
+  aspect-ratio: 3 / 4;
+  max-width: calc(62vh * 3 / 4);
+}
+
+.camera-preview.preview-phone .background-overlay {
+  background-position: center top;
+}
+
 /* Background Selector - Vertical vs Horizontal cards */
 .selector-vertical-mode .background-grid {
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

@@ -9,7 +9,7 @@ const SELFIE_SEGMENTATION_SCRIPT = 'https://cdn.jsdelivr.net/npm/@mediapipe/self
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
 // How large the visitor's cut-out appears against the landmark (1.0 = 100% full frame).
-const PERSON_ZOOM_VERTICAL = 0.8
+const PERSON_ZOOM_VERTICAL = 1.0
 const PERSON_ZOOM_HORIZONTAL = 1.0
 const getPersonZoom = (vertical) => (vertical ? PERSON_ZOOM_VERTICAL : PERSON_ZOOM_HORIZONTAL)
 
@@ -27,6 +27,7 @@ const DEBUG_CAMERA =
 
 // Smaller on phones: 1080x1920 + per-frame segmentation is heavy on mobile GPUs
 const getBoothSize = (vertical) => {
+  if (vertical && IS_MOBILE) return { w: 720, h: 960 } // 3:4, matches the full front-camera view
   const long = IS_MOBILE ? 1280 : 1920
   const short = IS_MOBILE ? 720 : 1080
   return vertical ? { w: short, h: long } : { w: long, h: short }
@@ -703,7 +704,7 @@ function App() {
     }
   }, [selectedDestination, isVertical])
 
-  // Draw Composited Canvas Frame (16:9 landscape or 9:16 portrait, sized for the device)
+  // Draw Composited Canvas Frame (16:9 landscape, 3:4 phone portrait, 9:16 other portrait)
   const drawCompositedFrame = (video) => {
     if (!compositeCanvasRef.current || !personCanvasRef.current || !video) return
 
@@ -711,7 +712,7 @@ function App() {
     const personCanvas = personCanvasRef.current
     const selectedBgImage = backgroundImageRef.current
 
-    // Standard 16:9 widescreen HD rectangle for desktop, 9:16 for portrait phones
+    // Standard 16:9 for landscape/desktop, 3:4 on phones in portrait
     const { w: targetWidth, h: targetHeight } = getBoothSize(isVerticalRef.current)
 
     if (compositeCanvas.width !== targetWidth || compositeCanvas.height !== targetHeight) {
@@ -728,9 +729,15 @@ function App() {
 
     compositeCtx.clearRect(0, 0, targetWidth, targetHeight)
 
-    // 1. Draw Landmark Background (orientation-matched full frame)
+    // 1. Draw Landmark Background (top-anchored cover crop, never stretched)
     if (selectedBgImage && selectedBgImage.complete && selectedBgImage.naturalWidth !== 0) {
-      compositeCtx.drawImage(selectedBgImage, 0, 0, targetWidth, targetHeight)
+      const c = computeCoverRect(
+        selectedBgImage.naturalWidth,
+        selectedBgImage.naturalHeight,
+        targetWidth,
+        targetHeight
+      )
+      compositeCtx.drawImage(selectedBgImage, c.offsetX, 0, c.renderW, c.renderH)
     } else {
       compositeCtx.fillStyle = '#0f172a'
       compositeCtx.fillRect(0, 0, targetWidth, targetHeight)
@@ -758,19 +765,6 @@ function App() {
       personCtx.filter = 'none'
       personCtx.globalCompositeOperation = 'source-in'
       drawMirroredCover(personCtx, video, personX, personY, personW, personH, targetWidth)
-
-      // Soften the hard top edge of the camera frame when the person is shrunk
-      if (personY > 0) {
-        const regionH = targetHeight - personY
-        const fadeH = Math.min(personH * 0.15, 140)
-        const g = personCtx.createLinearGradient(0, personY, 0, targetHeight)
-        g.addColorStop(0, 'rgba(0,0,0,0)')
-        g.addColorStop(fadeH / regionH, 'rgba(0,0,0,1)')
-        g.addColorStop(1, 'rgba(0,0,0,1)')
-        personCtx.globalCompositeOperation = 'destination-in'
-        personCtx.fillStyle = g
-        personCtx.fillRect(0, personY, targetWidth, regionH)
-      }
       personCtx.globalCompositeOperation = 'source-over'
       compositeCtx.drawImage(personCanvas, 0, 0, targetWidth, targetHeight)
     } else {
@@ -827,12 +821,14 @@ function App() {
     try {
       setError(null)
 
-      // Request a stream matching the booth orientation (9:16 portrait or 16:9 landscape)
+      // Request a stream matching the booth orientation (3:4 on phone portrait avoids sensor crop)
       const vertical = isVerticalRef.current
+      const phonePortrait = isVerticalRef.current && IS_MOBILE
       const constraints = {
         video: {
-          width: { ideal: vertical ? 720 : 1280 },
-          height: { ideal: vertical ? 1280 : 720 },
+          width: { ideal: vertical ? (phonePortrait ? 960 : 720) : 1280 },
+          height: { ideal: vertical ? (phonePortrait ? 1280 : 1280) : 720 },
+          aspectRatio: phonePortrait ? { ideal: 3 / 4 } : undefined,
           facingMode: 'user'
         }
       }
@@ -1216,18 +1212,12 @@ function App() {
 
         <div className="booth-main-container">
           <div className={`camera-card ${isVertical ? 'card-vertical' : 'card-horizontal'}`}>
-            <div className={`camera-preview ${isVertical ? 'preview-vertical' : 'preview-horizontal'}`}>
+            <div className={`camera-preview ${isVertical ? 'preview-vertical' : 'preview-horizontal'}${isVertical && IS_MOBILE ? ' preview-phone' : ''}`}>
               {/* Countdown hint — the preview stays completely clear */}
               {isCountingDown && (
                 <div className="countdown-hint" role="status" aria-live="polite">
                   <span className="countdown-hint-dot" aria-hidden="true"></span>
                   <span>Look at the camera…</span>
-                </div>
-              )}
-
-              {isCameraOpen && !capturedImage && !isCountingDown && (
-                <div className="countdown-hint" role="note">
-                  <span>Hold the phone a little farther away</span>
                 </div>
               )}
 
