@@ -1075,7 +1075,7 @@ function App() {
           </button>
         </div>
         <div className="booth-destination-indicator">
-          <span className="dest-name">{selectedDestination?.name}</span>
+          <span className="dest-location">{selectedDestination?.location || selectedDestination?.name}</span>
         </div>
       </header>
 

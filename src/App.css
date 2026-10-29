@@ -925,7 +925,7 @@ body {
   align-items: center;
 }
 
-.dest-name {
+.dest-location {
   font-family: var(--font-display), sans-serif;
   font-size: 1.05rem;
   font-weight: 700;
@@ -1496,11 +1496,18 @@ body {
     font-size: 2.2rem;
   }
 
+  /* Phones: the destination chip is removed, so the bar is a single row
+     holding just the Back and Home buttons. */
   .booth-top-bar {
     padding: 0.85rem 1rem;
-    flex-direction: column;
-    gap: 0.6rem;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0;
+  }
+
+  .booth-destination-indicator {
+    display: none;
   }
 
   .camera-card {
@@ -1509,6 +1516,14 @@ body {
 
   .detection-content {
     padding: 1rem;
+  }
+}
+
+/* Landscape phones are wider than 640px but still mobile — hide the chip
+   there too so only Back and Home remain. */
+@media (max-height: 500px) and (max-width: 1000px) {
+  .booth-destination-indicator {
+    display: none;
   }
 }
 
@@ -1666,7 +1681,7 @@ body {
     font-size: clamp(0.95rem, 1.4vw, 1.4rem);
   }
 
-  .dest-name {
+  .dest-location {
     font-size: clamp(1.15rem, 1.9vw, 1.9rem);
   }
 
