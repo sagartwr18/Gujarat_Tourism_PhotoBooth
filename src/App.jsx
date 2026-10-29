@@ -9,7 +9,9 @@ const SELFIE_SEGMENTATION_SCRIPT = 'https://cdn.jsdelivr.net/npm/@mediapipe/self
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
 // How large the visitor's cut-out appears against the landmark (1.0 = 100% full frame).
-const PERSON_ZOOM = 1.0
+const PERSON_ZOOM_VERTICAL = 0.65
+const PERSON_ZOOM_HORIZONTAL = 1.0
+const getPersonZoom = (vertical) => (vertical ? PERSON_ZOOM_VERTICAL : PERSON_ZOOM_HORIZONTAL)
 
 // Detect mobile devices so we can adapt the AI model, camera constraints,
 // and render loop accordingly.
@@ -739,8 +741,8 @@ function App() {
 
     // 2. Compute Cover Scaling & Centering for Webcam Video onto the booth canvas at 100% zoom
     const { renderW, renderH } = computeCoverRect(vW, vH, targetWidth, targetHeight)
-    const personW = renderW * PERSON_ZOOM
-    const personH = renderH * PERSON_ZOOM
+    const personW = renderW * getPersonZoom(isVerticalRef.current)
+    const personH = renderH * getPersonZoom(isVerticalRef.current)
     const personX = (targetWidth - personW) / 2
     const personY = personH > targetHeight
       ? (targetHeight - personH) * 0.15   // overflow: bias toward the top so faces aren't cut off
@@ -841,8 +843,8 @@ function App() {
         const sW = settings.width || targetWidth
         const sH = settings.height || targetHeight
         const cover = computeCoverRect(sW, sH, targetWidth, targetHeight)
-        const pW = Math.round(cover.renderW * PERSON_ZOOM)
-        const pH = Math.round(cover.renderH * PERSON_ZOOM)
+        const pW = Math.round(cover.renderW * getPersonZoom(isVerticalRef.current))
+        const pH = Math.round(cover.renderH * getPersonZoom(isVerticalRef.current))
         setDebugCamera({
           source: `${sW}×${sH}`,
           canvas: `${targetWidth}×${targetHeight}`,
