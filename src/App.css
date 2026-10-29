@@ -1067,81 +1067,122 @@ body {
   100% { opacity: 0; }
 }
 
-/* Countdown Overlay — soft vignette, camera stays visible */
-.countdown-overlay {
+/* Countdown hint — preview stays completely clear */
+.countdown-hint {
   position: absolute;
-  inset: 0;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 25;
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(7, 11, 20, 0.55);
+  color: #ffffff;
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
   pointer-events: none;
-  background: radial-gradient(circle at center, rgba(7, 11, 20, 0) 38%, rgba(7, 11, 20, 0.5) 100%);
   animation: fadeIn 0.2s ease;
 }
 
-.countdown-number {
+.countdown-hint-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f59e0b;
+  animation: hintPulse 1s ease-in-out infinite;
+}
+
+@keyframes hintPulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+/* Shutter button countdown */
+.take-photo-btn.is-counting {
+  position: relative;
+  width: 86px;
+  height: 86px;
+  padding: 0;
+  gap: 0;
+  border-radius: 50%;
+  justify-content: center;
+  background: rgba(7, 11, 20, 0.55);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.35), 0 8px 26px rgba(0, 0, 0, 0.35);
+  transition: width 0.2s ease, height 0.2s ease, border-radius 0.2s ease, background 0.2s ease;
+}
+
+.take-photo-btn.is-counting:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.shutter-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.shutter-ring-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 5;
+}
+
+.shutter-ring-progress {
+  fill: none;
+  stroke: #f59e0b;
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-dasharray: 289.03;
+  stroke-dashoffset: 0;
+  animation: shutterDrain 3s linear forwards;
+}
+
+@keyframes shutterDrain {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: 289.03; }
+}
+
+.shutter-count {
+  position: relative;
+  z-index: 1;
   font-family: var(--font-display);
-  font-size: clamp(4rem, 12vw, 6rem);
-  font-weight: 900;
+  font-size: 2.1rem;
+  font-weight: 800;
   line-height: 1;
   color: #ffffff;
-  text-shadow: 0 0 28px rgba(245, 158, 11, 0.6), 0 8px 28px rgba(0, 0, 0, 0.6);
-  animation: countdownPop 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: countdownPop 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.shutter-count.is-word {
+  font-size: 0.95rem;
+  letter-spacing: 0.5px;
 }
 
 @keyframes countdownPop {
-  0% { transform: scale(0.75); opacity: 0; }
-  60% { transform: scale(1.06); opacity: 1; }
+  0% { transform: scale(0.7); opacity: 0; }
+  60% { transform: scale(1.08); opacity: 1; }
   100% { transform: scale(1); opacity: 1; }
 }
 
-.countdown-sub {
-  margin-top: 0.85rem;
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: rgba(7, 11, 20, 0.6);
-  color: #ffffff;
-  font-family: var(--font-body);
-  font-size: 0.8rem;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-}
-
-.countdown-smile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  animation: smilePop 0.45s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.countdown-smile svg {
-  width: 46px;
-  height: 46px;
-  color: #fbbf24;
-  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
-}
-
-.countdown-smile span {
-  font-family: var(--font-display);
-  font-size: clamp(2.4rem, 7vw, 3.8rem);
-  font-weight: 800;
-  color: #ffffff;
-  letter-spacing: 0.5px;
-  text-shadow: 0 4px 18px rgba(0, 0, 0, 0.55), 0 0 30px rgba(245, 158, 11, 0.45);
-}
-
-@keyframes smilePop {
-  0% { transform: scale(0.85); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
+.camera-btn-icon {
+  width: 18px;
+  height: 18px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .countdown-overlay,
-  .countdown-number,
-  .countdown-smile {
+  .countdown-hint,
+  .countdown-hint-dot,
+  .shutter-count,
+  .shutter-ring-progress {
     animation: none;
   }
 }

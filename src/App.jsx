@@ -1100,23 +1100,11 @@ function App() {
         <div className="booth-main-container">
           <div className={`camera-card ${isVertical ? 'card-vertical' : 'card-horizontal'}`}>
             <div className={`camera-preview ${isVertical ? 'preview-vertical' : 'preview-horizontal'}`}>
-              {/* Countdown Overlay — soft vignette, camera stays visible */}
+              {/* Countdown hint — the preview stays completely clear */}
               {isCountingDown && (
-                <div className="countdown-overlay" role="status" aria-live="polite">
-                  {typeof countdown === 'number' ? (
-                    <>
-                      <div key={countdown} className="countdown-number">{countdown}</div>
-                      <p className="countdown-sub">Get ready for your Gujarat keepsake!</p>
-                    </>
-                  ) : (
-                    <div className="countdown-smile">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                        <circle cx="12" cy="13" r="4"></circle>
-                      </svg>
-                      <span>Smile!</span>
-                    </div>
-                  )}
+                <div className="countdown-hint" role="status" aria-live="polite">
+                  <span className="countdown-hint-dot" aria-hidden="true"></span>
+                  <span>Look at the camera…</span>
                 </div>
               )}
 
@@ -1152,10 +1140,33 @@ function App() {
                 <div className="active-camera-actions">
                   <button
                     onClick={startCountdownAndCapture}
-                    className="take-photo-btn primary-glow"
+                    className={`take-photo-btn primary-glow${isCountingDown ? ' is-counting' : ''}`}
                     disabled={isCountingDown}
                   >
-                    <span>{isCountingDown ? 'Counting Down...' : 'Capture Photo (3s Timer)'}</span>
+                    {isCountingDown ? (
+                      <>
+                        <svg className="shutter-ring" viewBox="0 0 100 100" aria-hidden="true">
+                          <circle className="shutter-ring-track" cx="50" cy="50" r="46" />
+                          {typeof countdown === 'number' && (
+                            <circle className="shutter-ring-progress" cx="50" cy="50" r="46" />
+                          )}
+                        </svg>
+                        <span
+                          key={countdown}
+                          className={`shutter-count${typeof countdown === 'number' ? '' : ' is-word'}`}
+                        >
+                          {countdown}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="camera-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                          <circle cx="12" cy="13" r="4"></circle>
+                        </svg>
+                        <span>Capture Photo (3s Timer)</span>
+                      </>
+                    )}
                   </button>
                 </div>
               )}
