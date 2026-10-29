@@ -845,7 +845,9 @@ function App() {
       height - frameThickness
     )
 
-    const dataUrl = framedCanvas.toDataURL('image/png')
+    // JPEG keeps the payload ~10-20x smaller than PNG (350-700 KB vs 3-8 MB),
+    // which is the single biggest factor in email send time.
+    const dataUrl = framedCanvas.toDataURL('image/jpeg', 0.9)
     setCapturedImage(dataUrl)
     stopCamera()
   }, [])

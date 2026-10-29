@@ -2,17 +2,25 @@ import express from 'express'
 import cors from 'cors'
 import nodemailer from 'nodemailer'
 import dotenv from 'dotenv'
+import dns from 'node:dns'
 import { createClient } from '@supabase/supabase-js'
 
 dotenv.config()
 
+// Prefer IPv4 for outbound SMTP. Broken/unreachable IPv6 routes are a common
+// cause of 20-30s stalls when connecting to mail servers.
+dns.setDefaultResultOrder('ipv4first')
+
 const app = express()
+app.disable('x-powered-by')
 const PORT = Number(process.env.PORT || 3001)
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '')
 const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
 
 app.use(cors())
-app.use(express.json({ limit: '25mb' }))
+// The client now sends a compressed JPEG (~1 MB max), so 8 MB is ample and
+// keeps the request body limit tight.
+app.use(express.json({ limit: '8mb' }))
 
 const requiredEnv = [
   'SMTP_HOST',
@@ -29,9 +37,15 @@ for (const key of requiredEnv) {
 }
 
 const transporter = nodemailer.createTransport({
+  // Reuse the SMTP/TLS connection between sends instead of reconnecting
+  // (saves ~1-3s per email).
+  pool: true,
+  maxConnections: 1,
+  maxMessages: 100,
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT || 587),
   secure: process.env.SMTP_SECURE === 'true',
+  family: 4,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
@@ -47,11 +61,30 @@ if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
   }
 }
 
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const isValidEmail = (value) =>
+  typeof value === 'string' && value.length <= 254 && EMAIL_REGEX.test(value)
+
+// Only log a masked recipient so visitor PII never ends up in server logs.
+const maskEmail = (email) => {
+  if (!email || typeof email !== 'string') return ''
+  const [local, domain] = email.split('@')
+  if (!domain) return '***'
+  return `${local.slice(0, 2)}***@${domain}`
+}
+
 const parseImageDataUrl = (dataUrl) => {
-  const match = dataUrl?.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
+  if (typeof dataUrl !== 'string') return null
+  const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/)
   if (!match) return null
+
+  const mimeType = match[1].toLowerCase()
+  if (!ALLOWED_IMAGE_TYPES.has(mimeType)) return null
+
   return {
-    mimeType: match[1],
+    mimeType,
     base64Data: match[2]
   }
 }
@@ -62,57 +95,27 @@ const saveEmailRecord = async (email, backgroundName = 'Gujarat Landmark') => {
     return { success: false, reason: 'Supabase client not initialized' }
   }
 
-  console.log(`\n🔍 [DATABASE] Checking existing email count for: ${email}`)
-  let count = 0
-  let countError = null
-
-  try {
-    const countResult = await supabase
-      .from('emails')
-      .select('id', { count: 'exact', head: true })
-      .eq('email', email)
-    count = countResult.count
-    countError = countResult.error
-  } catch (networkError) {
-    const detail = networkError?.cause?.message || networkError?.message || 'Unknown network error'
-    console.error(`❌ [DATABASE ERROR] Failed to reach Supabase: ${detail}`)
-    return { success: false, error: detail }
-  }
-
-  if (countError) {
-    console.error(`❌ [DATABASE ERROR] Failed to retrieve email frequency: ${countError.message}`)
-    return { success: false, error: countError.message }
-  }
-
-  const nextFrequency = (count || 0) + 1
-  console.log(`📊 [DATABASE] Prior record count for user: ${count || 0} → New frequency assigned: ${nextFrequency}`)
-
+  // No count query and no email_frequency anymore: a single insert is all we need.
   const payload = {
     email,
-    email_frequency: nextFrequency,
     background_name: backgroundName
   }
-
-  console.log(`💾 [DATABASE] Inserting record into 'emails' table:`)
-  console.log(JSON.stringify(payload, null, 2))
 
   try {
     const { data: insertedData, error: insertError } = await supabase
       .from('emails')
       .insert(payload)
-      .select()
+      .select('id, background_name')
 
     if (insertError) {
       console.error(`❌ [DATABASE ERROR] Failed to save record: ${insertError.message}`)
       return { success: false, error: insertError.message }
     }
 
-    const savedRecord = insertedData?.[0] || payload
-    console.log(`✅ [DATABASE SUCCESS] Record saved in Supabase:`)
-    console.log(JSON.stringify(savedRecord, null, 2))
-    return { success: true, record: savedRecord }
+    console.log('✅ [DATABASE SUCCESS] Visitor record saved.')
+    return { success: true, record: insertedData?.[0] || null }
   } catch (err) {
-    console.error(`❌ [DATABASE ERROR] Exception during insert:`, err.message)
+    console.error('❌ [DATABASE ERROR] Exception during insert:', err.message)
     return { success: false, error: err.message }
   }
 }
@@ -127,29 +130,37 @@ app.post('/api/send-email', async (req, res) => {
 
   try {
     const { toEmail, imageDataUrl, landmarkName, backgroundName } = req.body || {}
-    const placeName = backgroundName || landmarkName || 'Vibrant Gujarat'
+    const recipient = typeof toEmail === 'string' ? toEmail.trim() : ''
+    const placeName = String(backgroundName || landmarkName || 'Vibrant Gujarat').slice(0, 120)
 
     console.log(`📋 [REQUEST DETAILS]`)
-    console.log(`   • Recipient Email : ${toEmail || '(none provided)'}`)
+    console.log(`   • Recipient Email : ${maskEmail(recipient) || '(none provided)'}`)
     console.log(`   • Background Place: ${placeName}`)
 
-    if (!toEmail || !imageDataUrl) {
-      console.warn(`⚠️  [REQUEST REJECTED] Missing fields: toEmail=${Boolean(toEmail)}, imageDataUrl=${Boolean(imageDataUrl)}`)
+    if (!isValidEmail(recipient) || !imageDataUrl) {
+      console.warn(`⚠️  [REQUEST REJECTED] Invalid fields: validEmail=${isValidEmail(recipient)}, hasImage=${Boolean(imageDataUrl)}`)
       console.log('═'.repeat(65) + '\n')
-      return res.status(400).json({ message: 'toEmail and imageDataUrl are required.' })
+      return res.status(400).json({ message: 'A valid toEmail and imageDataUrl are required.' })
     }
 
     const parsedImage = parseImageDataUrl(imageDataUrl)
     if (!parsedImage) {
-      console.warn(`⚠️  [REQUEST REJECTED] Invalid imageDataUrl format provided.`)
+      console.warn(`⚠️  [REQUEST REJECTED] Invalid or unsupported imageDataUrl format.`)
+      console.log('═'.repeat(65) + '\n')
+      return res.status(400).json({ message: 'Invalid image format. Use JPEG, PNG or WebP.' })
+    }
+
+    const imageBuffer = Buffer.from(parsedImage.base64Data, 'base64')
+    if (imageBuffer.length === 0) {
+      console.warn(`⚠️  [REQUEST REJECTED] Empty image payload.`)
       console.log('═'.repeat(65) + '\n')
       return res.status(400).json({ message: 'Invalid image format.' })
     }
 
-    const imageBuffer = Buffer.from(parsedImage.base64Data, 'base64')
     const sizeKB = (imageBuffer.length / 1024).toFixed(1)
     const sizeMB = (imageBuffer.length / (1024 * 1024)).toFixed(2)
-    const attachmentFilename = `vibrant-gujarat-${Date.now()}.png`
+    const attachmentExt = parsedImage.mimeType === 'image/jpeg' ? 'jpg' : parsedImage.mimeType.split('/')[1]
+    const attachmentFilename = `vibrant-gujarat-${Date.now()}.${attachmentExt}`
 
     console.log(`   • Attachment MIME : ${parsedImage.mimeType}`)
     console.log(`   • Attachment File : ${attachmentFilename}`)
@@ -159,12 +170,12 @@ app.post('/api/send-email', async (req, res) => {
     const subject = `Your Vibrant Gujarat Memory • ${placeName}`
     console.log(`\n🚀 [SMTP DISPATCH] Sending email via ${process.env.SMTP_HOST}:${process.env.SMTP_PORT || 587}...`)
     console.log(`   • From   : ${process.env.MAIL_FROM}`)
-    console.log(`   • To     : ${toEmail}`)
+    console.log(`   • To     : ${maskEmail(recipient)}`)
     console.log(`   • Subject: ${subject}`)
 
     const mailOptions = {
       from: process.env.MAIL_FROM,
-      to: toEmail,
+      to: recipient,
       subject,
       text: `Kem Chho! Thank you for visiting the Vibrant Gujarat AI Photo Booth. Your souvenir photo from ${placeName} is attached. Padharo Gujarat!`,
       html: `
@@ -204,30 +215,25 @@ app.post('/api/send-email', async (req, res) => {
 
     const info = await transporter.sendMail(mailOptions)
 
-    console.log(`✅ [SMTP SUCCESS] Delivered to mail server!`)
-    console.log(`   • Message ID : ${info.messageId}`)
-    console.log(`   • Accepted   : ${JSON.stringify(info.accepted)}`)
-    console.log(`   • Response   : ${info.response || '250 OK'}`)
-    if (info.rejected && info.rejected.length > 0) {
-      console.warn(`   • Rejected   : ${JSON.stringify(info.rejected)}`)
-    }
-
-    // Step 2: Save record in Supabase
-    const dbResult = await saveEmailRecord(toEmail, placeName)
-
     const totalElapsed = Date.now() - startTime
-    console.log(`\n🎉 [FLOW COMPLETED]`)
-    console.log(`   • Status          : 200 OK`)
-    console.log(`   • Recipient       : ${toEmail}`)
-    console.log(`   • DB Stored       : ${dbResult?.success ? 'YES (Confirmed)' : 'NO (' + (dbResult?.error || dbResult?.reason) + ')'}`)
-    console.log(`   • Total Time Taken: ${totalElapsed}ms`)
+    console.log(`✅ [SMTP SUCCESS] Accepted by mail server in ${totalElapsed}ms`)
+    console.log(`   • Message ID : ${info.messageId}`)
+    console.log(`   • Accepted   : ${info.accepted?.length || 0} recipient(s)`)
+    if (info.rejected && info.rejected.length > 0) {
+      console.warn(`   • Rejected   : ${info.rejected.length} recipient(s)`)
+    }
     console.log('═'.repeat(65) + '\n')
 
-    return res.status(200).json({
+    // Respond as soon as SMTP accepts the message. The Supabase write happens
+    // in the background so the visitor never waits on a database round-trip.
+    res.status(200).json({
       message: 'Photo sent successfully!',
       messageId: info.messageId,
-      dbStatus: dbResult?.success ? 'saved' : 'skipped',
-      dbRecord: dbResult?.record || null
+      dbStatus: 'queued'
+    })
+
+    saveEmailRecord(recipient, placeName).catch((err) => {
+      console.error('[DATABASE] Background save failed:', err.message)
     })
   } catch (error) {
     const totalElapsed = Date.now() - startTime
@@ -237,6 +243,8 @@ app.post('/api/send-email', async (req, res) => {
     if (error.response) console.error(`   • SMTP Response : ${error.response}`)
     console.error(`   • Stack Trace   :`, error.stack)
     console.log('═'.repeat(65) + '\n')
+
+    if (res.headersSent) return
     return res.status(500).json({ message: 'Failed to send email. Check SMTP settings.' })
   }
 })
