@@ -22,6 +22,12 @@
   --text-muted: #94a3b8;
   --font-display: 'Outfit', sans-serif;
   --font-body: 'Plus Jakarta Sans', sans-serif;
+
+  /* Shared page shell — every page uses the same content width and the same
+     left/right gutter, so navbars, cards, grids and the camera card line up. */
+  --page-max-width: 1240px;
+  --page-padding-x: clamp(1rem, 3vw, 2.5rem);
+  --page-gutter: max(var(--page-padding-x), calc((100% - var(--page-max-width)) / 2));
 }
 
 body {
@@ -104,7 +110,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.6rem 2.5rem;
+  padding: 0.6rem var(--page-gutter);
   z-index: 50;
 }
 
@@ -216,7 +222,7 @@ body {
   align-items: center;
   flex: 1;
   width: 100%;
-  padding: 5.5rem 2rem 4rem;
+  padding: 5.5rem var(--page-gutter) 4rem;
   box-sizing: border-box;
 }
 
@@ -225,7 +231,7 @@ body {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: 960px;
+  max-width: var(--page-max-width);
   margin: auto;
 }
 
@@ -300,7 +306,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 2.5rem;
+  padding: 0 var(--page-gutter);
   z-index: 50;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -366,7 +372,7 @@ body {
 
 @media (max-width: 768px) {
   .landing-navbar {
-    padding: 0.5rem 1rem;
+    padding: 0.5rem var(--page-gutter);
     height: 64px;
   }
 
@@ -384,15 +390,14 @@ body {
   }
   
   .landing-footer {
-    padding: 0 1rem;
+    padding: 0.6rem var(--page-gutter);
     height: auto;
-    padding: 0.6rem 1rem;
     flex-direction: column;
     gap: 0.5rem;
   }
   
   .landing-content-wrapper {
-    padding: 5rem 1.25rem 4.5rem;
+    padding: 5rem var(--page-gutter) 4.5rem;
   }
 }
 
@@ -426,7 +431,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.4rem 2.2rem;
+  padding: 0.4rem var(--page-gutter);
   z-index: 50;
   border-bottom: 1px solid #e2e8f0;
 }
@@ -436,14 +441,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem 1.5rem;
+  padding: 1rem var(--page-gutter);
   box-sizing: border-box;
   overflow: hidden;
 }
 
 .instructions-clean-card {
   width: 100%;
-  max-width: 820px;
+  max-width: var(--page-max-width);
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 20px;
@@ -639,12 +644,12 @@ body {
   }
 
   .instructions-navbar {
-    padding: 0.4rem 1rem;
+    padding: 0.4rem var(--page-gutter);
     height: 52px;
   }
 
   .instructions-content-wrap {
-    padding: 1.5rem 1rem;
+    padding: 1.5rem var(--page-gutter);
   }
 
   .instructions-clean-card {
@@ -671,7 +676,8 @@ body {
 
 .background-selector {
   min-height: 100vh;
-  padding: 2.5rem 2rem 4rem;
+  width: 100%;
+  padding: 2.5rem var(--page-gutter) 4rem;
   background: #ffffff;
   display: flex;
   flex-direction: column;
@@ -681,7 +687,7 @@ body {
 
 .selector-header-bar {
   width: 100%;
-  max-width: 1240px;
+  max-width: var(--page-max-width);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -728,7 +734,7 @@ body {
 .background-grid {
   display: grid;
   gap: 1.75rem;
-  max-width: 1240px;
+  max-width: var(--page-max-width);
   width: 100%;
 }
 
@@ -870,6 +876,7 @@ body {
 
 .gender-detection-page {
   min-height: 100vh;
+  width: 100%;
   background: #f8fafc;
   position: relative;
   display: flex;
@@ -880,7 +887,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.85rem 2.5rem;
+  padding: 0.85rem var(--page-gutter);
   background: #ffffff;
   border-bottom: 1px solid #e2e8f0;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
@@ -941,7 +948,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 2rem;
+  padding: 2rem var(--page-gutter);
 }
 
 .booth-main-container {
@@ -958,14 +965,14 @@ body {
   border-radius: 20px;
   padding: 1.5rem;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(0, 0, 0, 0.03);
-  width: min(94vw, 940px);
+  width: min(100%, var(--page-max-width));
   transition: width 0.3s ease;
 }
 
 /* Vertical Screen Layouts (e.g. 1080x1920 Kiosk or Portrait displays) */
 .camera-card.card-vertical {
   width: fit-content;
-  max-width: 94vw;
+  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -978,14 +985,13 @@ body {
 
 /* Horizontal Screen Layouts (e.g. 1920x1080 Landscape) */
 .camera-card.card-horizontal {
-  width: min(94vw, 960px);
+  width: min(100%, var(--page-max-width));
   margin: 0 auto;
 }
 
 .camera-preview.preview-horizontal {
   aspect-ratio: 16 / 9;
   width: 100%;
-  max-height: 560px;
   margin: 0 auto;
 }
 
@@ -1494,7 +1500,7 @@ body {
   }
 
   .booth-top-bar {
-    padding: 0.85rem 1rem;
+    padding: 0.85rem var(--page-gutter);
     flex-direction: column;
     gap: 0.6rem;
     align-items: flex-start;
