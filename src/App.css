@@ -1729,3 +1729,58 @@ body {
     font-size: clamp(0.9rem, 1.4vw, 1.4rem);
   }
 }
+
+/* ========================================= */
+/* MOBILE SCROLLING                           */
+/* Phones (and short windows) scroll instead  */
+/* of clipping content that does not fit.     */
+/* ========================================= */
+@media (max-width: 900px), (max-height: 600px) {
+  /* Landing was locked to exactly one screen (100vh + overflow: hidden),
+     which cut off the title/button/footer on short phones. */
+  .landing-page {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    max-height: none;
+    overflow: visible;
+  }
+
+  /* The slideshow slides are scaled 1.04x, which used to be clipped by the
+     page's overflow: hidden. Clip them here so they never add phantom
+     scroll space now that the page can scroll. */
+  .slideshow-container {
+    overflow: hidden;
+  }
+
+  /* Instructions page had the same fixed-height lock. */
+  .instructions-clean-page {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .instructions-content-wrap,
+  .instructions-clean-body,
+  .instructions-clean-card {
+    overflow: visible;
+  }
+
+  /* Booth grows after capture (email form) — keep it scrollable. */
+  .gender-detection-page,
+  .detection-content,
+  .booth-main-container {
+    overflow: visible;
+  }
+
+  /* Footer sits at the very bottom of the scrollable landing page, so it
+     must grow with its own padding instead of being a fixed 48px strip. */
+  .landing-footer {
+    height: auto;
+    min-height: 48px;
+    padding-top: 0.5rem;
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
