@@ -519,6 +519,8 @@ function App() {
   const renderFrameRef = useRef(null)
   const isCameraOpenRef = useRef(false)
   const backgroundImageRef = useRef(null)
+  const countdownIntervalRef = useRef(null)
+  const countdownTimeoutRef = useRef(null)
 
   // Orientation State: 'vertical' (1080x1920) or 'horizontal' (1920x1080)
   const [orientation, setOrientation] = useState(() => {
@@ -571,6 +573,14 @@ function App() {
 
   useEffect(() => {
     personCanvasRef.current = document.createElement('canvas')
+  }, [])
+
+  // Clean up countdown timers if the component unmounts mid-countdown
+  useEffect(() => {
+    return () => {
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
+      if (countdownTimeoutRef.current) clearTimeout(countdownTimeoutRef.current)
+    }
   }, [])
 
   // Load MediaPipe Selfie Segmentation Script
@@ -782,7 +792,19 @@ function App() {
     }
   }
 
+  const clearCountdownTimers = () => {
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current)
+      countdownIntervalRef.current = null
+    }
+    if (countdownTimeoutRef.current) {
+      clearTimeout(countdownTimeoutRef.current)
+      countdownTimeoutRef.current = null
+    }
+  }
+
   const stopCamera = () => {
+    clearCountdownTimers()
     if (videoRef.current && videoRef.current.srcObject) {
       const tracks = videoRef.current.srcObject.getTracks()
       tracks.forEach((track) => track.stop())
@@ -854,21 +876,24 @@ function App() {
 
   // Countdown Handler
   const startCountdownAndCapture = () => {
+    clearCountdownTimers()
     setIsCountingDown(true)
     setCountdown(3)
 
     let current = 3
-    const interval = setInterval(() => {
+    countdownIntervalRef.current = setInterval(() => {
       current -= 1
       if (current > 0) {
         setCountdown(current)
       } else {
-        clearInterval(interval)
-        setCountdown('SMILE! 📸')
-        setTimeout(() => {
+        clearInterval(countdownIntervalRef.current)
+        countdownIntervalRef.current = null
+        setCountdown('Smile!')
+        countdownTimeoutRef.current = setTimeout(() => {
           executeCapture()
           setIsCountingDown(false)
           setCountdown(null)
+          countdownTimeoutRef.current = null
         }, 600)
       }
     }, 1000)
@@ -933,7 +958,7 @@ function App() {
       }
 
       console.log('[PhotoBooth] Email sent successfully:', data)
-      setEmailMessage(`Photo sent successfully to ${normalizedEmail}! Padharo Gujarat!`)
+      setEmailMessage(`Photo successfully sent to ${normalizedEmail}`)
       setEmailStatusType('success')
     } catch (err) {
       console.error('[PhotoBooth] Send email failed:', err)
@@ -1075,11 +1100,30 @@ function App() {
         <div className="booth-main-container">
           <div className={`camera-card ${isVertical ? 'card-vertical' : 'card-horizontal'}`}>
             <div className={`camera-preview ${isVertical ? 'preview-vertical' : 'preview-horizontal'}`}>
-              {/* Countdown Overlay */}
-              {isCountingDown && (
-                <div className="countdown-overlay">
-                  <div className="countdown-number">{countdown}</div>
-                  <p className="countdown-sub">Get ready for your Gujarat keepsake!</p>
+              {/* Countdown HUD — camera stays fully visible */}
+              {isCountingDown && typeof countdown === 'number' && (
+                <>
+                  <div className="countdown-progress" aria-hidden="true"></div>
+                  <div className="countdown-hud" role="status" aria-live="polite">
+                    <div className="countdown-ring-wrap">
+                      <svg className="countdown-ring" viewBox="0 0 100 100" aria-hidden="true">
+                        <circle className="countdown-ring-track" cx="50" cy="50" r="44" />
+                        <circle className="countdown-ring-progress" cx="50" cy="50" r="44" />
+                      </svg>
+                      <span key={countdown} className="countdown-value">{countdown}</span>
+                    </div>
+                    <span className="countdown-label">Get ready…</span>
+                  </div>
+                </>
+              )}
+
+              {isCountingDown && countdown === 'Smile!' && (
+                <div className="countdown-smile" role="status" aria-live="assertive">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                    <circle cx="12" cy="13" r="4"></circle>
+                  </svg>
+                  <span>Smile!</span>
                 </div>
               )}
 
