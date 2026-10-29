@@ -8,6 +8,14 @@ const SELFIE_SEGMENTATION_SCRIPT = 'https://cdn.jsdelivr.net/npm/@mediapipe/self
 // is hosted separately from the API, so VITE_API_URL points at the API host.
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
+// How large the visitor's cut-out appears against the landmark.
+//   1    → the camera frame covers the whole canvas (the person fills the screen)
+//   0.5  → the person is drawn at half size, so the landmark stays visible
+//          above and around them (good on 1080x1920 kiosk screens).
+// The cut-out is anchored to the bottom-centre of the frame, which keeps the
+// person standing on the ground line instead of floating in the middle.
+const PERSON_ZOOM = 0.5
+
 export const GUJARAT_DESTINATIONS = [
   {
     id: 'bhungas-rann-utsav',
@@ -718,15 +726,23 @@ function App() {
 
     const mask = segmentationMaskRef.current
 
-    // 3. Cutout and composite the user onto the landmark (mirrored like a selfie mirror)
+    // 3. Scale the cut-out down and anchor it to the bottom-centre, so the
+    //    landmark behind stays visible (PERSON_ZOOM = 1 fills the whole frame).
+    const personW = renderW * PERSON_ZOOM
+    const personH = renderH * PERSON_ZOOM
+    const personX = (targetWidth - personW) / 2
+    const personY = targetHeight - personH
+
+    // 4. Cutout and composite the user onto the landmark (mirrored like a selfie mirror)
     if (mask) {
       personCtx.clearRect(0, 0, targetWidth, targetHeight)
-      drawMirroredCover(personCtx, mask, offsetX, offsetY, renderW, renderH, targetWidth)
+      drawMirroredCover(personCtx, mask, personX, personY, personW, personH, targetWidth)
       personCtx.globalCompositeOperation = 'source-in'
-      drawMirroredCover(personCtx, video, offsetX, offsetY, renderW, renderH, targetWidth)
+      drawMirroredCover(personCtx, video, personX, personY, personW, personH, targetWidth)
       personCtx.globalCompositeOperation = 'source-over'
       compositeCtx.drawImage(personCanvas, 0, 0, targetWidth, targetHeight)
     } else {
+      // Segmentation not ready yet: show the raw feed as a plain mirror.
       drawMirroredCover(compositeCtx, video, offsetX, offsetY, renderW, renderH, targetWidth)
     }
   }
