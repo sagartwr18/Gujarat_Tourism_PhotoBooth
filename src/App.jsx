@@ -23,6 +23,13 @@ const IS_MOBILE =
 const DEBUG_CAMERA =
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debug')
 
+// Smaller on phones: 1080x1920 + per-frame segmentation is heavy on mobile GPUs
+const getBoothSize = (vertical) => {
+  const long = IS_MOBILE ? 1280 : 1920
+  const short = IS_MOBILE ? 720 : 1080
+  return vertical ? { w: short, h: long } : { w: long, h: short }
+}
+
 export const GUJARAT_DESTINATIONS = [
   {
     id: 'bhungas-rann-utsav',
@@ -562,6 +569,8 @@ function App() {
     return 'horizontal'
   })
   const isVertical = orientation === 'vertical'
+  const isVerticalRef = useRef(isVertical)
+  isVerticalRef.current = isVertical
 
   const [isCameraOpen, setIsCameraOpen] = useState(false)
   const [showLanding, setShowLanding] = useState(true)
@@ -674,7 +683,7 @@ function App() {
     }
   }, [])
 
-  // Preload Selected Destination Background Image (Always Horizontal HD for the 4th page booth)
+  // Preload Selected Destination Background Image (matches the booth orientation)
   useEffect(() => {
     if (!selectedDestination) {
       backgroundImageRef.current = null
@@ -686,14 +695,13 @@ function App() {
     img.onload = () => {
       backgroundImageRef.current = img
     }
-    // Always load Horizontal HD image for the 4th page photo booth
-    img.src = getDestinationImagePath(selectedDestination, false)
+    img.src = getDestinationImagePath(selectedDestination, isVertical)
     if (img.complete && img.naturalWidth !== 0) {
       backgroundImageRef.current = img
     }
-  }, [selectedDestination])
+  }, [selectedDestination, isVertical])
 
-  // Draw Composited Canvas Frame (Always 1920x1080 16:9 Landscape Rectangle on desktop & mobile)
+  // Draw Composited Canvas Frame (16:9 landscape or 9:16 portrait, sized for the device)
   const drawCompositedFrame = (video) => {
     if (!compositeCanvasRef.current || !personCanvasRef.current || !video) return
 
@@ -701,9 +709,8 @@ function App() {
     const personCanvas = personCanvasRef.current
     const selectedBgImage = backgroundImageRef.current
 
-    // Standard 16:9 widescreen HD rectangle for both desktop and mobile
-    const targetWidth = 1920
-    const targetHeight = 1080
+    // Standard 16:9 widescreen HD rectangle for desktop, 9:16 for portrait phones
+    const { w: targetWidth, h: targetHeight } = getBoothSize(isVerticalRef.current)
 
     if (compositeCanvas.width !== targetWidth || compositeCanvas.height !== targetHeight) {
       compositeCanvas.width = targetWidth
@@ -719,7 +726,7 @@ function App() {
 
     compositeCtx.clearRect(0, 0, targetWidth, targetHeight)
 
-    // 1. Draw Landmark Background (Horizontal HD full frame)
+    // 1. Draw Landmark Background (orientation-matched full frame)
     if (selectedBgImage && selectedBgImage.complete && selectedBgImage.naturalWidth !== 0) {
       compositeCtx.drawImage(selectedBgImage, 0, 0, targetWidth, targetHeight)
     } else {
@@ -730,19 +737,23 @@ function App() {
     const vW = video.videoWidth || targetWidth
     const vH = video.videoHeight || targetHeight
 
-    // 2. Compute Cover Scaling & Centering for Webcam Video onto 16:9 Canvas at 100% zoom
+    // 2. Compute Cover Scaling & Centering for Webcam Video onto the booth canvas at 100% zoom
     const { renderW, renderH } = computeCoverRect(vW, vH, targetWidth, targetHeight)
     const personW = renderW * PERSON_ZOOM
     const personH = renderH * PERSON_ZOOM
     const personX = (targetWidth - personW) / 2
-    const personY = targetHeight - personH
+    const personY = personH > targetHeight
+      ? (targetHeight - personH) * 0.15   // overflow: bias toward the top so faces aren't cut off
+      : targetHeight - personH
 
     const mask = segmentationMaskRef.current
 
     // 3. Cutout and composite the user onto the landmark (mirrored like a selfie mirror)
     if (mask) {
       personCtx.clearRect(0, 0, targetWidth, targetHeight)
+      personCtx.filter = 'blur(2px)'
       drawMirroredCover(personCtx, mask, personX, personY, personW, personH, targetWidth)
+      personCtx.filter = 'none'
       personCtx.globalCompositeOperation = 'source-in'
       drawMirroredCover(personCtx, video, personX, personY, personW, personH, targetWidth)
       personCtx.globalCompositeOperation = 'source-over'
@@ -801,11 +812,12 @@ function App() {
     try {
       setError(null)
 
-      // Request 16:9 widescreen HD stream for the 16:9 rectangular photo booth
+      // Request a stream matching the booth orientation (9:16 portrait or 16:9 landscape)
+      const vertical = isVerticalRef.current
       const constraints = {
         video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: vertical ? 720 : 1280 },
+          height: { ideal: vertical ? 1280 : 720 },
           facingMode: 'user'
         }
       }
@@ -825,8 +837,7 @@ function App() {
 
       if (DEBUG_CAMERA) {
         const settings = track?.getSettings?.() || {}
-        const targetWidth = 1920
-        const targetHeight = 1080
+        const { w: targetWidth, h: targetHeight } = getBoothSize(isVerticalRef.current)
         const sW = settings.width || targetWidth
         const sH = settings.height || targetHeight
         const cover = computeCoverRect(sW, sH, targetWidth, targetHeight)
@@ -901,6 +912,16 @@ function App() {
       }
     }
   }, [showLanding, showInstructions, showBackgroundSelector, capturedImage])
+
+  // Restart the stream when the screen orientation changes so the video
+  // constraints and composite canvas switch between portrait and landscape.
+  useEffect(() => {
+    if (isCameraOpenRef.current) {
+      stopCamera()
+      startCamera()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVertical])
 
   // Capture Photo with Keepsake Framing adapting to Vertical & Horizontal layouts
   const executeCapture = useCallback(() => {
@@ -1179,8 +1200,8 @@ function App() {
         )}
 
         <div className="booth-main-container">
-          <div className="camera-card card-horizontal">
-            <div className="camera-preview preview-horizontal">
+          <div className={`camera-card ${isVertical ? 'card-vertical' : 'card-horizontal'}`}>
+            <div className={`camera-preview ${isVertical ? 'preview-vertical' : 'preview-horizontal'}`}>
               {/* Countdown hint — the preview stays completely clear */}
               {isCountingDown && (
                 <div className="countdown-hint" role="status" aria-live="polite">
@@ -1199,7 +1220,7 @@ function App() {
                     <div
                       className="background-overlay"
                       style={{
-                        backgroundImage: `url(${getDestinationImagePath(selectedDestination, false)})`
+                        backgroundImage: `url(${getDestinationImagePath(selectedDestination, isVertical)})`
                       }}
                     ></div>
                   )}
