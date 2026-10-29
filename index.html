@@ -13,23 +13,46 @@
     
     <!-- Google Translate Script -->
     <script type="text/javascript">
-      window.googleTranslateElementInit = function() {
-        if (window.google && window.google.translate) {
-          const el = document.getElementById('google_translate_element');
-          if (el && el.children.length === 0) {
-            new window.google.translate.TranslateElement({
-              pageLanguage: 'en',
-              includedLanguages: 'en,gu,hi,bn,te,mr,ta,ur,kn,ml,pa,es,fr,de,ja,zh-CN,ar,ru',
-              layout: window.google.translate.TranslateElement.InlineLayout.SIMPLE,
-              autoDisplay: false
-            }, 'google_translate_element');
-          }
-        }
-      };
+      // The widget container lives outside #root (see <body>) so React never
+      // unmounts it. Google's TranslateElement can only be constructed once per
+      // element id, so we guard against re-initialisation and wait for the
+      // container to exist before building the gadget.
+      (function () {
+        var initialized = false;
+
+        window.googleTranslateElementInit = function () {
+          var attempts = 0;
+
+          (function tryInit() {
+            var el = document.getElementById('google_translate_element');
+
+            if (window.google && window.google.translate && el) {
+              if (!initialized && el.children.length === 0) {
+                initialized = true;
+                new window.google.translate.TranslateElement({
+                  pageLanguage: 'en',
+                  includedLanguages: 'en,gu,hi,bn,te,mr,ta,ur,kn,ml,pa,es,fr,de,ja,zh-CN,ar,ru',
+                  layout: window.google.translate.TranslateElement.InlineLayout.SIMPLE,
+                  autoDisplay: false
+                }, 'google_translate_element');
+              }
+              return;
+            }
+
+            if (attempts++ < 100) {
+              setTimeout(tryInit, 100);
+            }
+          })();
+        };
+      })();
     </script>
     <script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
   </head>
   <body>
+    <!-- Google Translate container: intentionally outside #root so the widget
+         survives page changes and is never re-initialised. -->
+    <div id="google_translate_element" class="google-translate-box"></div>
+
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

@@ -216,13 +216,6 @@ function LandingPage({ onStart, isVertical }) {
     return () => clearInterval(timer)
   }, [heroDestinations.length])
 
-  // Initialize or re-render Google Translate widget when LandingPage mounts
-  useEffect(() => {
-    if (window.googleTranslateElementInit) {
-      window.googleTranslateElementInit()
-    }
-  }, [])
-
   return (
     <div className={`landing-page ${isVertical ? 'orientation-vertical' : 'orientation-horizontal'}`}>
       {/* Background Slideshow */}
@@ -249,9 +242,7 @@ function LandingPage({ onStart, isVertical }) {
           />
         </div>
 
-        <div className="navbar-right">
-          <div id="google_translate_element" className="google-translate-box"></div>
-        </div>
+        <div className="navbar-right" />
       </nav>
 
       {/* Main Hero Content */}
@@ -820,6 +811,12 @@ function App() {
     setIsCountingDown(false)
     setCountdown(null)
   }
+
+  // The Google Translate widget is mounted outside React (see index.html) and
+  // only visible on the landing page.
+  useEffect(() => {
+    document.body.classList.toggle('landing-active', showLanding)
+  }, [showLanding])
 
   // Auto-start camera immediately when entering the Camera & Photo Booth page
   useEffect(() => {

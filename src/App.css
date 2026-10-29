@@ -154,9 +154,26 @@ body {
 }
 
 /* Google Translate Widget Styling */
+/* Lives outside #root (see index.html) and is positioned over the landing
+   navbar. Hidden on every other page so it is never unmounted/re-initialised. */
 .google-translate-box {
+  position: fixed;
+  top: 37px;                 /* vertically centred in the 74px landing navbar */
+  right: 2.5rem;             /* matches .landing-navbar horizontal padding */
+  transform: translateY(-50%);
+  z-index: 60;               /* above .landing-navbar (50) */
   display: inline-flex;
   align-items: center;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+body.landing-active .google-translate-box {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .goog-te-gadget-simple {
@@ -351,6 +368,11 @@ body {
   .landing-navbar {
     padding: 0.5rem 1rem;
     height: 64px;
+  }
+
+  .google-translate-box {
+    top: 32px;               /* vertically centred in the 64px mobile navbar */
+    right: 1rem;             /* matches mobile navbar padding */
   }
   
   .navbar-brand-logo {
