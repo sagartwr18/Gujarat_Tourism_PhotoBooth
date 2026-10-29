@@ -9,7 +9,7 @@ const SELFIE_SEGMENTATION_SCRIPT = 'https://cdn.jsdelivr.net/npm/@mediapipe/self
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
 // How large the visitor's cut-out appears against the landmark (1.0 = 100% full frame).
-const PERSON_ZOOM_VERTICAL = 1.0
+const PERSON_ZOOM_VERTICAL = 0.8
 const PERSON_ZOOM_HORIZONTAL = 1.0
 const getPersonZoom = (vertical) => (vertical ? PERSON_ZOOM_VERTICAL : PERSON_ZOOM_HORIZONTAL)
 
@@ -746,10 +746,11 @@ function App() {
     const vW = video.videoWidth || targetWidth
     const vH = video.videoHeight || targetHeight
 
-    // 2. Compute Cover Scaling & Centering for Webcam Video onto the booth canvas at 100% zoom
+    // 2. Compute Cover Scaling & Centering for Webcam Video onto the booth canvas
     const { renderW, renderH } = computeCoverRect(vW, vH, targetWidth, targetHeight)
-    const personW = renderW * getPersonZoom(isVerticalRef.current)
-    const personH = renderH * getPersonZoom(isVerticalRef.current)
+    const zoom = getPersonZoom(isVerticalRef.current)
+    const personW = renderW * zoom
+    const personH = renderH * zoom
     const personX = (targetWidth - personW) / 2
     const personY = personH > targetHeight
       ? (targetHeight - personH) * 0.15   // overflow: bias toward the top so faces aren't cut off
@@ -765,6 +766,16 @@ function App() {
       personCtx.filter = 'none'
       personCtx.globalCompositeOperation = 'source-in'
       drawMirroredCover(personCtx, video, personX, personY, personW, personH, targetWidth)
+
+      if (zoom < 1) {
+        const f = 14 // edge softness in px
+        personCtx.globalCompositeOperation = 'destination-in'
+        personCtx.filter = `blur(${f}px)`
+        personCtx.fillStyle = '#000'
+        // inset the rect so the blur fades inside the frame; extend the bottom past the canvas
+        personCtx.fillRect(personX + f, personY + f, personW - 2 * f, personH + f * 4)
+        personCtx.filter = 'none'
+      }
       personCtx.globalCompositeOperation = 'source-over'
       compositeCtx.drawImage(personCanvas, 0, 0, targetWidth, targetHeight)
     } else {
@@ -826,8 +837,8 @@ function App() {
       const phonePortrait = isVerticalRef.current && IS_MOBILE
       const constraints = {
         video: {
-          width: { ideal: vertical ? (phonePortrait ? 960 : 720) : 1280 },
-          height: { ideal: vertical ? (phonePortrait ? 1280 : 1280) : 720 },
+          width: { ideal: vertical ? 720 : 1280 },
+          height: { ideal: vertical ? (phonePortrait ? 960 : 1280) : 720 },
           aspectRatio: phonePortrait ? { ideal: 3 / 4 } : undefined,
           facingMode: 'user'
         }
