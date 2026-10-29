@@ -13,11 +13,44 @@ dns.setDefaultResultOrder('ipv4first')
 
 const app = express()
 app.disable('x-powered-by')
+// Render (and most hosts) terminate TLS in front of the app, so the real
+// client IP arrives in X-Forwarded-For.
+app.set('trust proxy', 1)
 const PORT = Number(process.env.PORT || 3001)
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '')
 const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
 
-app.use(cors())
+// Comma-separated list of browser origins allowed to call this API, e.g.
+// "https://photo-booth.vercel.app,https://booth.gujarattourism.com".
+// Empty means "allow any origin", which is only meant for local development.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
+  .filter(Boolean)
+
+const LOCAL_ORIGIN_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
+
+const corsOptions = {
+  origin(origin, callback) {
+    // Same-origin and non-browser requests (health checks, curl) send no Origin.
+    if (!origin) return callback(null, true)
+
+    const normalized = origin.replace(/\/+$/, '')
+    if (
+      ALLOWED_ORIGINS.length === 0 ||
+      ALLOWED_ORIGINS.includes('*') ||
+      ALLOWED_ORIGINS.includes(normalized) ||
+      LOCAL_ORIGIN_REGEX.test(normalized)
+    ) {
+      return callback(null, true)
+    }
+
+    console.warn(`[server] Blocked request from origin: ${origin}`)
+    return callback(null, false)
+  }
+}
+
+app.use(cors(corsOptions))
 // The client now sends a compressed JPEG (~1 MB max), so 8 MB is ample and
 // keeps the request body limit tight.
 app.use(express.json({ limit: '8mb' }))
@@ -34,6 +67,41 @@ for (const key of requiredEnv) {
   if (!process.env[key]) {
     console.warn(`[server] Missing env var: ${key}`)
   }
+}
+
+// Lightweight in-memory rate limit. The email endpoint is public once the
+// frontend is hosted separately, so this protects the SMTP account from abuse.
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 10 * 60 * 1000)
+const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 5)
+const rateBuckets = new Map()
+
+const getClientIp = (req) => {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+  return forwarded || req.ip || req.socket?.remoteAddress || 'unknown'
+}
+
+const isRateLimited = (key) => {
+  const now = Date.now()
+  const recent = (rateBuckets.get(key) || []).filter((time) => now - time < RATE_LIMIT_WINDOW_MS)
+
+  if (recent.length >= RATE_LIMIT_MAX) {
+    rateBuckets.set(key, recent)
+    return true
+  }
+
+  recent.push(now)
+  rateBuckets.set(key, recent)
+
+  // Keep the map from growing forever on a long-running instance.
+  if (rateBuckets.size > 5000) {
+    for (const [bucketKey, times] of rateBuckets) {
+      if (times.every((time) => now - time >= RATE_LIMIT_WINDOW_MS)) {
+        rateBuckets.delete(bucketKey)
+      }
+    }
+  }
+
+  return false
 }
 
 const transporter = nodemailer.createTransport({
@@ -60,6 +128,15 @@ if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
     console.warn('[server] Supabase init warning:', err.message)
   }
 }
+
+// Health endpoint for the host's health check / uptime monitoring.
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    uptimeSeconds: Math.round(process.uptime()),
+    supabase: Boolean(supabase)
+  })
+})
 
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -121,6 +198,12 @@ const saveEmailRecord = async (email, backgroundName = 'Gujarat Landmark') => {
 }
 
 app.post('/api/send-email', async (req, res) => {
+  const clientIp = getClientIp(req)
+  if (isRateLimited(clientIp)) {
+    console.warn(`⚠️  [RATE LIMIT] Too many requests from ${clientIp}`)
+    return res.status(429).json({ message: 'Too many requests. Please try again in a few minutes.' })
+  }
+
   const startTime = Date.now()
   const timestamp = new Date().toLocaleString('en-US', { timeZoneName: 'short' })
 
@@ -245,5 +328,5 @@ Gujarat Tourism`,
 })
 
 app.listen(PORT, () => {
-  console.log(`[server] Vibrant Gujarat AI Photo Booth running at http://localhost:${PORT}`)
+  console.log(`[server] Vibrant Gujarat Photo Booth running at http://localhost:${PORT}`)
 })

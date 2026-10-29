@@ -3,6 +3,11 @@ import './App.css'
 
 const SELFIE_SEGMENTATION_SCRIPT = 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js'
 
+// API origin. Empty by default so local development keeps using the relative
+// "/api" path (proxied to localhost:3001 by Vite). In production the frontend
+// is hosted separately from the API, so VITE_API_URL points at the API host.
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
+
 export const GUJARAT_DESTINATIONS = [
   {
     id: 'bhungas-rann-utsav',
@@ -932,7 +937,7 @@ function App() {
 
     try {
       console.log(`[PhotoBooth] Initiating email send to: ${normalizedEmail} | Landmark: ${selectedDestination?.name || 'Vibrant Gujarat'}`)
-      const response = await fetch('/api/send-email', {
+      const response = await fetch(`${API_BASE}/api/send-email`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

@@ -72,3 +72,62 @@ npm run dev:full
 - **Frontend**: React 19, Vite 7, HTML5 Canvas, MediaPipe Selfie Segmentation
 - **AI Models**: `@vladmandic/face-api` (TinyFaceDetector, FaceLandmark68Tiny, AgeGenderNet)
 - **Backend**: Node.js, Express 5, Nodemailer, Supabase JS
+
+---
+
+## 🚀 Deploy (Render + Vercel)
+
+The app is deployed as two services: the **API on Render** and the **frontend on Vercel**.
+Both must be configured, in this order.
+
+### 1. Backend on Render
+
+1. **New → Web Service**, connect this repository, branch `main`, root directory `.`
+2. Runtime **Node**, build command `npm ci --omit=dev`, start command `node server.js`
+3. Region: **Singapore** (lowest latency from India)
+4. Health check path: `/api/health`
+5. Environment variables:
+
+   | Key | Value |
+   |---|---|
+   | `SMTP_HOST` | e.g. `smtp.gmail.com` |
+   | `SMTP_PORT` | `587` |
+   | `SMTP_SECURE` | `false` |
+   | `SMTP_USER` | sending mailbox |
+   | `SMTP_PASS` | app password (never the account password) |
+   | `MAIL_FROM` | `"Vibrant Gujarat Photo Booth <mailbox>"` |
+   | `SUPABASE_URL` | project URL |
+   | `SUPABASE_SERVICE_ROLE_KEY` | service-role key (server only) |
+   | `ALLOWED_ORIGINS` | `https://<project>.vercel.app` (fill in after step 3) |
+   | `NODE_VERSION` | `22` |
+
+6. Verify `https://<service>.onrender.com/api/health` returns `{"status":"ok",...}`.
+
+> Use the **Starter** plan for a live kiosk. Free instances sleep after ~15 minutes of
+> inactivity and the first visitor waits 30–50 seconds.
+
+### 2. Frontend on Vercel
+
+1. **New Project**, import this repository (framework preset **Vite** is detected;
+   `vercel.json` already sets build/output and the SPA rewrite).
+2. Environment variable (Production): `VITE_API_URL=https://<service>.onrender.com`
+   — no trailing slash.
+3. Deploy and note the URL, e.g. `https://<project>.vercel.app`.
+
+### 3. Close the CORS loop
+
+Add the Vercel URL to `ALLOWED_ORIGINS` on Render and save. The service restarts
+automatically. Localhost origins are always allowed for development.
+
+### 4. Verify
+
+- Open the Vercel URL → camera permission prompt → capture → email → download.
+- Render logs show the per-step timings; the Supabase `emails` table gets a row.
+- Kiosks need camera permission granted once for the new domain.
+
+### Notes
+
+- `.env` is git-ignored; set variables in each host's dashboard, never in the repo.
+- SMTP ports 587/465 work on Render; port 25 is blocked.
+- `ALLOWED_ORIGINS` plus the built-in rate limit (`RATE_LIMIT_MAX` per IP) keep the
+  public email endpoint from being abused.
