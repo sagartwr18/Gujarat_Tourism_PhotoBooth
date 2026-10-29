@@ -16,6 +16,12 @@ const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 // person standing on the ground line instead of floating in the middle.
 const PERSON_ZOOM = 0.5
 
+// Append ?debug=1 to the URL to print the camera mode and the person frame
+// geometry on screen. Handy on a kiosk, where the browser console is not
+// reachable. Hidden by default.
+const DEBUG_CAMERA =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debug')
+
 export const GUJARAT_DESTINATIONS = [
   {
     id: 'bhungas-rann-utsav',
@@ -211,6 +217,27 @@ const drawMirroredCover = (ctx, source, offsetX, offsetY, renderW, renderH, canv
   ctx.scale(-1, 1)
   ctx.drawImage(source, offsetX, offsetY, renderW, renderH)
   ctx.restore()
+}
+
+// "Cover" fit of the camera frame onto the target canvas: the source is scaled
+// until it covers the canvas, so only the overflowing axis is cropped. A wider
+// source (e.g. 4:3 or 16:9) therefore never loses the top/bottom of the frame
+// on a 9:16 canvas — only the sides.
+const computeCoverRect = (vWidth, vHeight, targetWidth, targetHeight) => {
+  const videoAspect = vWidth / vHeight
+  const canvasAspect = targetWidth / targetHeight
+
+  if (videoAspect > canvasAspect) {
+    // Source is wider than the canvas -> match height, crop the sides.
+    const renderH = targetHeight
+    const renderW = targetHeight * videoAspect
+    return { renderW, renderH, offsetX: (targetWidth - renderW) / 2, offsetY: 0 }
+  }
+
+  // Source is taller than the canvas -> match width, crop the top/bottom.
+  const renderW = targetWidth
+  const renderH = targetWidth / videoAspect
+  return { renderW, renderH, offsetX: 0, offsetY: (targetHeight - renderH) / 2 }
 }
 
 function LandingPage({ onStart, isVertical }) {
@@ -548,6 +575,7 @@ function App() {
   const [emailMessage, setEmailMessage] = useState('')
   const [emailStatusType, setEmailStatusType] = useState('idle')
   const [isSendingEmail, setIsSendingEmail] = useState(false)
+  const [debugCamera, setDebugCamera] = useState(null)
 
   // Countdown timer state
   const [countdown, setCountdown] = useState(null)
@@ -704,25 +732,12 @@ function App() {
     }
 
     // 2. Compute Cover Scaling & Centering for Webcam Video onto Target Canvas
-    const vWidth = video.videoWidth || targetWidth
-    const vHeight = video.videoHeight || targetHeight
-    const videoAspect = vWidth / vHeight
-    const canvasAspect = targetWidth / targetHeight
-
-    let renderW, renderH, offsetX, offsetY
-    if (videoAspect > canvasAspect) {
-      // Video is wider than canvas -> match height, center width
-      renderH = targetHeight
-      renderW = targetHeight * videoAspect
-      offsetX = (targetWidth - renderW) / 2
-      offsetY = 0
-    } else {
-      // Video is taller than canvas -> match width, center height
-      renderW = targetWidth
-      renderH = targetWidth / videoAspect
-      offsetX = 0
-      offsetY = (targetHeight - renderH) / 2
-    }
+    const { renderW, renderH, offsetX, offsetY } = computeCoverRect(
+      video.videoWidth || targetWidth,
+      video.videoHeight || targetHeight,
+      targetWidth,
+      targetHeight
+    )
 
     const mask = segmentationMaskRef.current
 
@@ -776,16 +791,51 @@ function App() {
   const startCamera = async () => {
     try {
       setError(null)
-      // Request camera stream matching the active orientation
+
+      // Ask for the tallest field of view the camera can give.
+      //
+      // On a portrait kiosk the canvas is 9:16, so the compositor only ever
+      // crops the sides — never the top. A 4:3 stream keeps the full sensor
+      // height, while asking for 9:16 (or letting the browser settle on 16:9)
+      // makes many webcams return a mode that is a vertical crop of the
+      // sensor, which cuts the top of the head off for anyone standing close.
       const constraints = {
-        video: {
-          width: { ideal: isVertical ? 1080 : 1920 },
-          height: { ideal: isVertical ? 1920 : 1080 },
-          facingMode: 'user'
-        }
+        video: isVertical
+          ? { width: { ideal: 1440 }, height: { ideal: 1080 }, resizeMode: 'none', facingMode: 'user' }
+          : { width: { ideal: 1920 }, height: { ideal: 1080 }, resizeMode: 'none', facingMode: 'user' }
       }
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
+
+      // Some webcams ship with a digital zoom applied, which crops the frame
+      // and cuts heads off. Reset it to the widest setting when the camera
+      // exposes that control.
+      const track = stream.getVideoTracks()[0]
+      const capabilities = track?.getCapabilities?.() || {}
+      if (capabilities.zoom && typeof capabilities.zoom.min === 'number') {
+        track
+          .applyConstraints({ advanced: [{ zoom: capabilities.zoom.min }] })
+          .catch((err) => console.warn('[camera] Could not reset zoom:', err.message))
+      }
+
+      if (DEBUG_CAMERA) {
+        const settings = track?.getSettings?.() || {}
+        const targetWidth = isVertical ? 1080 : 1920
+        const targetHeight = isVertical ? 1920 : 1080
+        const cover = computeCoverRect(
+          settings.width || targetWidth,
+          settings.height || targetHeight,
+          targetWidth,
+          targetHeight
+        )
+        setDebugCamera({
+          source: `${settings.width || '?'}×${settings.height || '?'}`,
+          canvas: `${targetWidth}×${targetHeight}`,
+          personFrame: `${Math.round(cover.renderW * PERSON_ZOOM)}×${Math.round(cover.renderH * PERSON_ZOOM)}`,
+          personTop: Math.round(targetHeight - cover.renderH * PERSON_ZOOM),
+          zoom: capabilities.zoom ? `${capabilities.zoom.min}–${capabilities.zoom.max}` : 'not supported'
+        })
+      }
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream
@@ -1077,6 +1127,15 @@ function App() {
     <div className={`gender-detection-page ${isVertical ? 'booth-vertical-screen' : 'booth-horizontal-screen'}`}>
       {/* Visual Shutter Flash */}
       {isFlashActive && <div className="camera-shutter-flash"></div>}
+
+      {DEBUG_CAMERA && debugCamera && (
+        <div className="camera-debug-badge">
+          <span>camera {debugCamera.source}</span>
+          <span>canvas {debugCamera.canvas}</span>
+          <span>person {debugCamera.personFrame} @ y={debugCamera.personTop}</span>
+          <span>zoom {debugCamera.zoom}</span>
+        </div>
+      )}
 
       <header className="booth-top-bar">
         <div className="booth-nav-group">
