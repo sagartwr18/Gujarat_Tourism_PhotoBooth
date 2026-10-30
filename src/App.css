@@ -158,20 +158,23 @@ body {
 }
 
 /* Google Translate Widget Styling */
-/* Lives outside #root (see index.html) and is positioned over the landing
-   navbar. Hidden on every other page so it is never unmounted/re-initialised. */
+/* Lives outside #root (see index.html) and is moved into the landing navbar
+   slot, so it aligns with the logo and scrolls with the page. Hidden on every
+   other page so it is never unmounted/re-initialised. */
 .google-translate-box {
-  position: fixed;
-  top: 37px;                 /* vertically centred in the 74px landing navbar */
-  right: 2.5rem;             /* matches .landing-navbar horizontal padding */
-  transform: translateY(-50%);
-  z-index: 60;               /* above .landing-navbar (50) */
+  position: absolute;
+  top: 0;
+  left: 0;
   display: inline-flex;
   align-items: center;
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
+}
+
+.poster-navbar .google-translate-box {
+  position: static;
 }
 
 body.landing-active .google-translate-box {
@@ -374,11 +377,6 @@ body {
     height: 64px;
   }
 
-  .google-translate-box {
-    top: 32px;               /* vertically centred in the 64px mobile navbar */
-    right: 1rem;             /* matches mobile navbar padding */
-  }
-  
   .navbar-brand-logo {
     height: 42px;
   }
@@ -1589,10 +1587,6 @@ body {
   }
 
   /* --- Shared chrome ------------------------------------------------ */
-  .google-translate-box {
-    top: 46px;               /* vertically centred in the 92px navbar */
-    right: 2.5rem;
-  }
 
   /* --- Landing ------------------------------------------------------ */
   .landing-navbar {
@@ -1885,6 +1879,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  gap: 1rem;
   margin: 1.25rem 2.5rem 0;
   padding: 0.7rem 1.5rem;
   border: 1px solid rgba(28, 25, 23, 0.06);
@@ -1895,6 +1890,20 @@ body {
 
 .poster-navbar .landing-theme-logo {
   height: 44px;
+}
+
+/* Google Translate slot: pushed to the right edge of the navbar pill. */
+.poster-navbar-translate {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.poster-navbar .goog-te-gadget-simple {
+  padding: 3px 8px !important;
+  border-color: rgba(28, 25, 23, 0.14) !important;
+  background-color: #ffffff !important;
+  white-space: nowrap;
 }
 
 .poster-main {
@@ -2062,21 +2071,6 @@ body {
   );
 }
 
-.poster-card-tag {
-  position: absolute;
-  top: 1rem;
-  left: 1rem;
-  padding: 0.35rem 0.8rem;
-  border-radius: 999px;
-  font-family: var(--font-display);
-  font-size: 0.64rem;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--poster-saffron);
-  background: rgba(255, 255, 255, 0.92);
-}
-
 .poster-card-info {
   position: absolute;
   right: 1rem;
@@ -2099,60 +2093,6 @@ body {
   font-style: normal;
   font-size: 0.75rem;
   opacity: 0.85;
-}
-
-.poster-filmstrip {
-  position: relative;
-  z-index: 3;
-  display: flex;
-  gap: 0.7rem;
-  overflow-x: auto;
-  padding: 0.3rem 3rem 1.2rem;
-  scrollbar-width: thin;
-}
-
-.poster-thumb {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 0.65rem;
-  padding: 0.4rem 0.95rem 0.4rem 0.4rem;
-  border: 1px solid rgba(28, 25, 23, 0.08);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
-  cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
-}
-
-.poster-thumb-image {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background-size: cover;
-  background-position: center;
-}
-
-.poster-thumb-name {
-  font-family: var(--font-display);
-  font-size: 0.74rem;
-  font-weight: 700;
-  white-space: nowrap;
-  color: #57534e;
-}
-
-.poster-thumb:hover {
-  transform: translateY(-2px);
-  background: #ffffff;
-}
-
-.poster-thumb.active {
-  border-color: var(--poster-saffron);
-  background: #ffffff;
-  box-shadow: 0 10px 22px -14px rgba(234, 88, 12, 0.55);
-}
-
-.poster-thumb.active .poster-thumb-name {
-  color: var(--poster-ink);
 }
 
 .landing-theme-poster .landing-footer {
@@ -2193,6 +2133,7 @@ body {
 
 .landing-page.orientation-vertical .poster-main {
   grid-template-columns: 1fr;
+  align-content: center;
   gap: clamp(1rem, 2.5vh, 1.8rem);
   padding: 1.2rem 1.25rem 0.5rem;
 }
@@ -2222,11 +2163,6 @@ body {
 
 .landing-page.orientation-vertical .poster-card-small {
   display: none;
-}
-
-.landing-page.orientation-vertical .poster-filmstrip {
-  padding-right: 1rem;
-  padding-left: 1rem;
 }
 
 @media (max-width: 768px) {
@@ -2285,22 +2221,6 @@ body {
   .landing-page.orientation-vertical .poster-collage {
     height: clamp(360px, 34vh, 560px);
   }
-
-  .landing-page.orientation-vertical .poster-filmstrip {
-    flex-wrap: wrap;
-    justify-content: center;
-    overflow: visible;
-    padding: 0.4rem 4rem 1.6rem;
-  }
-
-  .landing-page.orientation-vertical .poster-thumb-image {
-    width: 52px;
-    height: 52px;
-  }
-
-  .landing-page.orientation-vertical .poster-thumb-name {
-    font-size: clamp(0.8rem, 1.1vw, 1rem);
-  }
 }
 
 /* Short landscape screens (phones on their side). */
@@ -2316,10 +2236,6 @@ body {
 
   .poster-collage {
     height: 240px;
-  }
-
-  .poster-filmstrip {
-    display: none;
   }
 }
 

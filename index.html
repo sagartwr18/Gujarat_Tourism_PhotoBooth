@@ -53,6 +53,41 @@
          survives page changes and is never re-initialised. -->
     <div id="google_translate_element" class="google-translate-box"></div>
 
+    <!-- Moves the initialized Translate gadget into the landing navbar slot so
+         it lines up with the logo and scrolls with the page. Only the parent
+         changes; the container itself is never re-created. -->
+    <script type="text/javascript">
+      (function () {
+        var container = document.getElementById('google_translate_element');
+        if (!container) return;
+
+        var scheduled = false;
+
+        function place() {
+          scheduled = false;
+          var slot = document.getElementById('landing-translate-slot');
+          var target = slot || document.body;
+
+          if (container.parentNode !== target) {
+            target.appendChild(container);
+          }
+        }
+
+        function schedule() {
+          if (scheduled) return;
+          scheduled = true;
+          window.requestAnimationFrame(place);
+        }
+
+        new MutationObserver(schedule).observe(document.body, {
+          childList: true,
+          subtree: true
+        });
+
+        schedule();
+      })();
+    </script>
+
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

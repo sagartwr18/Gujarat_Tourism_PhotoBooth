@@ -300,6 +300,9 @@ function PosterLanding({ destinations, currentSlide, onSelect, onStart }) {
 
       <header className="poster-navbar">
         <LandingLogo />
+        {/* Google Translate is moved into this slot by index.html so the
+            language picker sits inside the navbar and scrolls with the page. */}
+        <div id="landing-translate-slot" className="poster-navbar-translate" />
       </header>
 
       <main className="poster-main">
@@ -332,7 +335,6 @@ function PosterLanding({ destinations, currentSlide, onSelect, onStart }) {
               style={{ backgroundImage: `url(${getLandingImagePath(current.file)})` }}
             />
             <span className="poster-card-shade" />
-            <span className="poster-card-tag">Now showing</span>
             <span className="poster-card-info">
               <strong>{current.name}</strong>
               <em>{current.location}</em>
@@ -359,25 +361,6 @@ function PosterLanding({ destinations, currentSlide, onSelect, onStart }) {
           ))}
         </section>
       </main>
-
-      <div className="poster-filmstrip" role="tablist" aria-label="Featured landmarks">
-        {destinations.map((dest, index) => (
-          <button
-            key={dest.id}
-            type="button"
-            role="tab"
-            aria-selected={index === currentSlide}
-            className={`poster-thumb${index === currentSlide ? ' active' : ''}`}
-            onClick={() => onSelect(index)}
-          >
-            <span
-              className="poster-thumb-image"
-              style={{ backgroundImage: `url(${getLandingImagePath(dest.file)})` }}
-            />
-            <span className="poster-thumb-name">{dest.name}</span>
-          </button>
-        ))}
-      </div>
     </div>
   )
 }
@@ -395,6 +378,14 @@ function LandingPage({ onStart, isVertical }) {
     }, 4500)
     return () => clearInterval(timer)
   }, [heroDestinations.length])
+
+  // Warm the cache so the rotating hero card never flashes an empty card.
+  useEffect(() => {
+    LANDING_SLIDES.forEach((file) => {
+      const img = new Image()
+      img.src = getLandingImagePath(file)
+    })
+  }, [])
 
   return (
     <div className={`landing-page landing-theme-poster ${isVertical ? 'orientation-vertical' : 'orientation-horizontal'}`}>
