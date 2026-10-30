@@ -1260,6 +1260,10 @@ function App() {
       )}
 
       <header className="booth-top-bar">
+        <LandingLogo />
+        <div className="booth-destination-indicator">
+          <span className="dest-location">{selectedDestination?.location || selectedDestination?.name}</span>
+        </div>
         <div className="booth-nav-group">
           <button className="back-nav-btn" onClick={handleBackFromCamera} title="Back to Backgrounds">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -1275,9 +1279,6 @@ function App() {
             </svg>
             <span>Home</span>
           </button>
-        </div>
-        <div className="booth-destination-indicator">
-          <span className="dest-location">{selectedDestination?.location || selectedDestination?.name}</span>
         </div>
       </header>
 
