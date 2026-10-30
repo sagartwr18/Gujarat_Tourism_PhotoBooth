@@ -238,6 +238,10 @@ export const getDestinationImagePath = (dest, isVertical) => {
   return `/destinations/${encodeURIComponent(folder)}/${dest.file}`
 }
 
+// Landing page slides use the enhanced hero images in their own folder.
+const getLandingImagePath = (file) =>
+  `/destinations/${encodeURIComponent('Landing Page')}/${file}`
+
 const drawMirroredCover = (ctx, source, offsetX, offsetY, renderW, renderH, canvasW) => {
   ctx.save()
   ctx.translate(canvasW, 0)
@@ -267,12 +271,371 @@ const computeCoverRect = (vWidth, vHeight, targetWidth, targetHeight) => {
   return { renderW, renderH, offsetX: 0, offsetY: (targetHeight - renderH) / 2 }
 }
 
+/* ========================================= */
+/* LANDING PAGE THEMES                       */
+/* ========================================= */
+
+// 5 enhanced hero slides from the Landing Page folder.
+const LANDING_SLIDES = ['11.webp', '14.webp', '3.webp', '5.webp', '9.webp']
+
+// Temporary design comparison switch: ?design=1|2|3 (defaults to Design 1).
+const getInitialLandingTheme = () => {
+  if (typeof window === 'undefined') return 1
+  const value = new URLSearchParams(window.location.search).get('design')
+  return ['1', '2', '3'].includes(value) ? Number(value) : 1
+}
+
+const SHOW_THEME_SWITCHER = true // set to false once a final design is chosen
+
+const LandingLogo = () => (
+  <img
+    src="/assets/gujarat-tourism-logo.png"
+    alt="Gujarat Tourism"
+    className="landing-theme-logo"
+  />
+)
+
+const CheckIcon = () => (
+  <svg viewBox="0 0 20 20" aria-hidden="true" className="poster-check-icon">
+    <circle cx="10" cy="10" r="9" fill="currentColor" opacity="0.14" />
+    <path
+      d="M6 10.5l2.5 2.5L14 7"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
+
+/* ---------- Design 1 — Regal Ivory (heritage editorial) ---------- */
+function IvoryLanding({ destinations, currentSlide, onSelect, onStart }) {
+  return (
+    <div className="ivory-shell">
+      <header className="ivory-navbar">
+        <LandingLogo />
+        <div className="ivory-navbar-right">
+          <span className="ivory-nav-eyebrow">Land of Legends</span>
+        </div>
+      </header>
+
+      <main className="ivory-main">
+        <section className="ivory-copy">
+          <span className="ivory-eyebrow">Gujarat Tourism presents</span>
+          <h1 className="ivory-title">
+            Welcome to the <em>Land of Legends</em>
+          </h1>
+          <p className="ivory-description">
+            Vibrant cultures, majestic heritage and breathtaking landscapes — from the white
+            sands of the Rann of Kutch to the sacred shores of Somnath and the wilds of Gir.
+          </p>
+          <div className="ivory-actions">
+            <button className="ivory-cta" onClick={onStart}>
+              Start Your Journey
+              <span aria-hidden="true">→</span>
+            </button>
+            <button className="ivory-ghost" type="button" onClick={onStart}>
+              Explore Landmarks
+            </button>
+          </div>
+          <ul className="ivory-stats">
+            <li>
+              <strong>15</strong>
+              <span>Iconic landmarks</span>
+            </li>
+            <li>
+              <strong>AI</strong>
+              <span>Live cutout</span>
+            </li>
+            <li>
+              <strong>HD</strong>
+              <span>Instant keepsake</span>
+            </li>
+          </ul>
+        </section>
+
+        <section className="ivory-visual" aria-label="Featured destinations">
+          <div className="ivory-arch-wrap">
+            <div className="ivory-arch">
+              {destinations.map((dest, index) => (
+                <div
+                  key={dest.id}
+                  className={`ivory-slide${index === currentSlide ? ' active' : ''}`}
+                  style={{ backgroundImage: `url(${getLandingImagePath(dest.file)})` }}
+                />
+              ))}
+              <div className="ivory-arch-shade" />
+              {destinations.map((dest, index) => (
+                <div
+                  key={`caption-${dest.id}`}
+                  className={`ivory-caption${index === currentSlide ? ' active' : ''}`}
+                  aria-hidden={index !== currentSlide}
+                >
+                  <span className="ivory-caption-index">
+                    {String(index + 1).padStart(2, '0')} /{' '}
+                    {String(destinations.length).padStart(2, '0')}
+                  </span>
+                  <strong>{dest.name}</strong>
+                  <span>{dest.location}</span>
+                </div>
+              ))}
+              <div className="ivory-dots">
+                {destinations.map((dest, index) => (
+                  <button
+                    key={dest.id}
+                    type="button"
+                    className={index === currentSlide ? 'active' : ''}
+                    onClick={() => onSelect(index)}
+                    aria-label={`Show ${dest.name}`}
+                    aria-pressed={index === currentSlide}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <div className="ivory-ticker" aria-hidden="true">
+        <div className="ivory-ticker-track">
+          {[0, 1].map((pass) => (
+            <div className="ivory-ticker-group" key={pass}>
+              {destinations.map((dest) => (
+                <span key={`${pass}-${dest.id}`}>
+                  {dest.name}
+                  <i>✦</i>
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- Design 2 — Cinematic Rann (immersive dark) ---------- */
+function CinematicLanding({ destinations, currentSlide, onSelect, onStart }) {
+  const current = destinations[currentSlide]
+
+  return (
+    <div className="cinematic-shell">
+      <div className="cinematic-slides" aria-hidden="true">
+        {destinations.map((dest, index) => (
+          <div
+            key={dest.id}
+            className={`cinematic-slide${index === currentSlide ? ' active' : ''}`}
+            style={{ backgroundImage: `url(${getLandingImagePath(dest.file)})` }}
+          />
+        ))}
+        <div className="cinematic-scrim" />
+      </div>
+
+      <header className="cinematic-navbar">
+        <span className="cinematic-brand">
+          <LandingLogo />
+        </span>
+        <span className="cinematic-nav-note">Gujarat · Land of Legends</span>
+      </header>
+
+      <main className="cinematic-main">
+        <span className="cinematic-eyebrow">
+          <i className="cinematic-pulse" aria-hidden="true" />
+          Now playing · {current.name}
+        </span>
+        <h1 className="cinematic-title">
+          The Land of <span>Legends</span>
+        </h1>
+        <p className="cinematic-description">
+          Step into Gujarat’s white deserts, royal palaces and sacred shores. Pick a landmark,
+          strike a pose, and take home an AI-composed portrait.
+        </p>
+        <div className="cinematic-actions">
+          <button className="cinematic-cta" onClick={onStart}>
+            <span className="cinematic-cta-circle" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                <circle cx="12" cy="13" r="4" />
+              </svg>
+            </span>
+            <span className="cinematic-cta-text">
+              <strong>Start Your Journey</strong>
+              <em>Tap to begin</em>
+            </span>
+          </button>
+          <button className="cinematic-link" type="button" onClick={onStart}>
+            How it works <span aria-hidden="true">→</span>
+          </button>
+        </div>
+      </main>
+
+      <aside className="cinematic-rail" aria-label="Choose a destination">
+        {destinations.map((dest, index) => (
+          <button
+            key={dest.id}
+            type="button"
+            className={index === currentSlide ? 'active' : ''}
+            onClick={() => onSelect(index)}
+            aria-label={`Show ${dest.name}`}
+            aria-pressed={index === currentSlide}
+          >
+            <span>{String(index + 1).padStart(2, '0')}</span>
+            <i aria-hidden="true" />
+          </button>
+        ))}
+      </aside>
+
+      <div className="cinematic-card" aria-live="polite">
+        <span className="cinematic-card-label">Featured landmark</span>
+        <strong>{current.name}</strong>
+        <span className="cinematic-card-location">{current.location}</span>
+        <div className="cinematic-progress" aria-hidden="true">
+          {destinations.map((dest, index) => (
+            <i key={dest.id} className={index === currentSlide ? 'active' : ''} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- Design 3 — Vibrant Poster (bright campaign) ---------- */
+function PosterLanding({ destinations, currentSlide, onSelect, onStart }) {
+  const current = destinations[currentSlide]
+  const secondary = [1, 2].map(
+    (offset) => destinations[(currentSlide + offset) % destinations.length]
+  )
+
+  return (
+    <div className="poster-shell">
+      <div className="poster-blob poster-blob-saffron" aria-hidden="true" />
+      <div className="poster-blob poster-blob-teal" aria-hidden="true" />
+
+      <header className="poster-navbar">
+        <LandingLogo />
+        <div className="poster-navbar-right">
+          <span className="poster-sticker">AI Photo Booth</span>
+          <span className="poster-nav-note">Land of Legends</span>
+        </div>
+      </header>
+
+      <main className="poster-main">
+        <section className="poster-copy">
+          <span className="poster-eyebrow">Gujarat Tourism</span>
+          <h1 className="poster-title">
+            Find your <span>legend</span> in Gujarat.
+          </h1>
+          <p className="poster-description">
+            Pick an iconic landmark, step into the frame and let AI place you right inside the
+            moment. Download it or mail it home in seconds.
+          </p>
+          <div className="poster-actions">
+            <button className="poster-cta" onClick={onStart}>
+              Start Your Journey <span aria-hidden="true">→</span>
+            </button>
+            <button className="poster-ghost" type="button" onClick={onStart}>
+              See all 15 landmarks
+            </button>
+          </div>
+          <ul className="poster-trust">
+            <li>
+              <CheckIcon /> AI cutout
+            </li>
+            <li>
+              <CheckIcon /> Instant email
+            </li>
+            <li>
+              <CheckIcon /> HD download
+            </li>
+          </ul>
+        </section>
+
+        <section className="poster-collage" aria-label="Featured destinations">
+          <button
+            className="poster-card poster-card-main"
+            type="button"
+            onClick={() => onSelect(currentSlide)}
+          >
+            <span
+              className="poster-card-image"
+              style={{ backgroundImage: `url(${getLandingImagePath(current.file)})` }}
+            />
+            <span className="poster-card-shade" />
+            <span className="poster-card-tag">Now showing</span>
+            <span className="poster-card-info">
+              <strong>{current.name}</strong>
+              <em>{current.location}</em>
+            </span>
+          </button>
+
+          {secondary.map((dest, index) => (
+            <button
+              key={dest.id}
+              className={`poster-card poster-card-small poster-card-${index + 1}`}
+              type="button"
+              onClick={() => onSelect(destinations.indexOf(dest))}
+            >
+              <span
+                className="poster-card-image"
+                style={{ backgroundImage: `url(${getLandingImagePath(dest.file)})` }}
+              />
+              <span className="poster-card-shade" />
+              <span className="poster-card-info">
+                <strong>{dest.name}</strong>
+                <em>{dest.location}</em>
+              </span>
+            </button>
+          ))}
+        </section>
+      </main>
+
+      <div className="poster-filmstrip" role="tablist" aria-label="Featured landmarks">
+        {destinations.map((dest, index) => (
+          <button
+            key={dest.id}
+            type="button"
+            role="tab"
+            aria-selected={index === currentSlide}
+            className={`poster-thumb${index === currentSlide ? ' active' : ''}`}
+            onClick={() => onSelect(index)}
+          >
+            <span
+              className="poster-thumb-image"
+              style={{ backgroundImage: `url(${getLandingImagePath(dest.file)})` }}
+            />
+            <span className="poster-thumb-name">{dest.name}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function LandingThemeSwitcher({ theme, onChange }) {
+  return (
+    <div className="landing-theme-switch" role="group" aria-label="Landing page design preview">
+      <span>Design</span>
+      {[1, 2, 3].map((n) => (
+        <button
+          key={n}
+          type="button"
+          className={theme === n ? 'active' : ''}
+          onClick={() => onChange(n)}
+          aria-pressed={theme === n}
+        >
+          {n}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function LandingPage({ onStart, isVertical }) {
   const [currentSlide, setCurrentSlide] = useState(0)
+  const [theme, setTheme] = useState(getInitialLandingTheme)
 
-  // 5 Featured Hero Slides from client's 15 destinations
-  const heroSlideIds = ['14.webp', '3.webp', '13.webp', '11.webp', '9.webp']
-  const heroDestinations = heroSlideIds.map((file) =>
+  const heroDestinations = LANDING_SLIDES.map((file) =>
     GUJARAT_DESTINATIONS.find((d) => d.file === file)
   )
 
@@ -283,55 +646,54 @@ function LandingPage({ onStart, isVertical }) {
     return () => clearInterval(timer)
   }, [heroDestinations.length])
 
+  const changeTheme = (next) => {
+    setTheme(next)
+    setCurrentSlide(0)
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href)
+      url.searchParams.set('design', String(next))
+      window.history.replaceState({}, '', url)
+    }
+  }
+
+  const themeName =
+    theme === 2
+      ? 'landing-theme-cinematic'
+      : theme === 3
+        ? 'landing-theme-poster'
+        : 'landing-theme-ivory'
+  const footerName =
+    theme === 2 ? 'footer-cinematic' : theme === 3 ? 'footer-poster' : 'footer-ivory'
+
   return (
-    <div className={`landing-page ${isVertical ? 'orientation-vertical' : 'orientation-horizontal'}`}>
-      {/* Background Slideshow */}
-      <div className="slideshow-container">
-        {heroDestinations.map((dest, index) => (
-          <div
-            key={dest.id}
-            className={`Slide ${index === currentSlide ? 'active' : ''}`}
-            style={{
-              backgroundImage: `url(${getDestinationImagePath(dest, isVertical)})`
-            }}
-          />
-        ))}
-        <div className="slide-overlay"></div>
-      </div>
-
-      {/* Top Navbar */}
-      <nav className="landing-navbar">
-        <div className="navbar-left">
-          <img
-            src="/assets/gujarat-tourism-logo.png"
-            alt="Gujarat Tourism Logo"
-            className="navbar-brand-logo"
-          />
-        </div>
-
-        <div className="navbar-right" />
-      </nav>
-
-      {/* Main Hero Content */}
-      <div className="landing-content-wrapper">
-        <div className="landing-content">
-          <span className="landing-tagline">Explore the vibrant spirit of Gujarat.</span>
-          <h1 className="landing-title">
-            Welcome to the Land of Legends – Gujarat
-          </h1>
-          <p className="landing-description">
-            Embark on a journey through vibrant cultures, majestic heritage, and breathtaking landscapes.
-            From the timeless white sands of the Rann of Kutch to the sacred shores of Somnath and the
-            wilderness of Gir, discover a land where history, spirituality, and adventure come alive.
-          </p>
-          <button className="start-journey-btn" onClick={onStart}>
-            Start Your Journey
-          </button>
-        </div>
-      </div>
+    <div className={`landing-page ${themeName} ${isVertical ? 'orientation-vertical' : 'orientation-horizontal'}`}>
+      {theme === 1 && (
+        <IvoryLanding
+          destinations={heroDestinations}
+          currentSlide={currentSlide}
+          onSelect={setCurrentSlide}
+          onStart={onStart}
+        />
+      )}
+      {theme === 2 && (
+        <CinematicLanding
+          destinations={heroDestinations}
+          currentSlide={currentSlide}
+          onSelect={setCurrentSlide}
+          onStart={onStart}
+        />
+      )}
+      {theme === 3 && (
+        <PosterLanding
+          destinations={heroDestinations}
+          currentSlide={currentSlide}
+          onSelect={setCurrentSlide}
+          onStart={onStart}
+        />
+      )}
 
       {/* Bottom Footer */}
-      <footer className="landing-footer">
+      <footer className={`landing-footer ${footerName}`}>
         <div className="footer-social-links">
           {/* Facebook */}
           <a
@@ -413,6 +775,10 @@ function LandingPage({ onStart, isVertical }) {
           <a href="#disclaimer" onClick={(e) => e.preventDefault()}>Disclaimer</a>
         </div>
       </footer>
+
+      {SHOW_THEME_SWITCHER && (
+        <LandingThemeSwitcher theme={theme} onChange={changeTheme} />
+      )}
     </div>
   )
 }
