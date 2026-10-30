@@ -33,52 +33,20 @@ const getBoothSize = (vertical) => {
   return vertical ? { w: short, h: long } : { w: long, h: short }
 }
 
-// TEMP: on-screen camera preset tester (phone portrait only).
-const SHOW_CAM_TESTER = true // set to false to remove the tester UI
-
-// Video constraints per camera preset. Presets 1-5 apply only to phone
-// portrait; every other case keeps the existing request unchanged.
-const buildVideoConstraints = (preset, vertical, isMobile) => {
+// Phone portrait uses the browser default (facingMode only): on Android this
+// returns the full front-sensor portrait view instead of a cropped 9:16 stream.
+// Every other case keeps the existing request unchanged.
+const buildVideoConstraints = (vertical, isMobile) => {
   if (vertical && isMobile) {
-    switch (preset) {
-      case 2:
-        return { width: { ideal: 720 }, height: { ideal: 960 }, aspectRatio: { ideal: 3 / 4 }, facingMode: 'user' }
-      case 3:
-        return { width: { ideal: 480 }, height: { ideal: 640 }, aspectRatio: { ideal: 3 / 4 }, facingMode: 'user' }
-      case 4:
-        return { facingMode: 'user' }
-      case 5:
-        return { aspectRatio: { ideal: 3 / 4 }, resizeMode: { ideal: 'none' }, facingMode: 'user' }
-      case 1:
-      default:
-        return { width: { ideal: 960 }, height: { ideal: 1280 }, aspectRatio: { ideal: 3 / 4 }, facingMode: 'user' }
-    }
+    return { facingMode: 'user' }
   }
 
-  const phonePortrait = vertical && isMobile
   return {
-    width: { ideal: vertical ? (phonePortrait ? 960 : 720) : 1280 },
-    height: { ideal: vertical ? (phonePortrait ? 1280 : 1280) : 720 },
-    aspectRatio: phonePortrait ? { ideal: 3 / 4 } : undefined,
+    width: { ideal: vertical ? 720 : 1280 },
+    height: { ideal: vertical ? 1280 : 720 },
+    aspectRatio: undefined,
     facingMode: 'user'
   }
-}
-
-const formatTrackInfo = (info) => {
-  if (!info) return ''
-  const parts = [`#${info.preset}`, `${info.width}x${info.height}`]
-  if (typeof info.aspectRatio === 'number') parts.push(`ar ${info.aspectRatio.toFixed(2)}`)
-  if (info.zoom !== undefined) {
-    parts.push(
-      info.zoomRange === 'not supported'
-        ? `zoom ${info.zoom}`
-        : `zoom ${info.zoom} (${info.zoomRange})`
-    )
-  } else {
-    parts.push(`zoom ${info.zoomRange}`)
-  }
-  if (info.resizeMode) parts.push(`resize ${info.resizeMode}`)
-  return parts.join(' | ')
 }
 
 export const GUJARAT_DESTINATIONS = [
@@ -637,9 +605,6 @@ function App() {
   const [emailStatusType, setEmailStatusType] = useState('idle')
   const [isSendingEmail, setIsSendingEmail] = useState(false)
   const [debugCamera, setDebugCamera] = useState(null)
-  const [camPreset, setCamPreset] = useState(1)
-  const camPresetRef = useRef(1) // startCamera reads this ref so it is never stale
-  const [trackInfo, setTrackInfo] = useState(null)
 
   // Countdown timer state
   const [countdown, setCountdown] = useState(null)
@@ -778,6 +743,11 @@ function App() {
     const compositeCtx = compositeCanvas.getContext('2d')
     const personCtx = personCanvas.getContext('2d')
 
+    compositeCtx.imageSmoothingEnabled = true
+    compositeCtx.imageSmoothingQuality = 'high'
+    personCtx.imageSmoothingEnabled = true
+    personCtx.imageSmoothingQuality = 'high'
+
     compositeCtx.clearRect(0, 0, targetWidth, targetHeight)
 
     // 1. Draw Landmark Background (top-anchored cover crop, never stretched)
@@ -811,7 +781,7 @@ function App() {
     // 3. Cutout and composite the user onto the landmark (mirrored like a selfie mirror)
     if (mask) {
       personCtx.clearRect(0, 0, targetWidth, targetHeight)
-      personCtx.filter = 'blur(2px)'
+      personCtx.filter = 'blur(1px)'
       drawMirroredCover(personCtx, mask, personX, personY, personW, personH, targetWidth)
       personCtx.filter = 'none'
       personCtx.globalCompositeOperation = 'source-in'
@@ -872,9 +842,9 @@ function App() {
     try {
       setError(null)
 
-      // Build constraints from the active camera preset (see buildVideoConstraints)
+      // Build the video constraints for the current orientation and device
       const constraints = {
-        video: buildVideoConstraints(camPresetRef.current, isVerticalRef.current, IS_MOBILE)
+        video: buildVideoConstraints(isVerticalRef.current, IS_MOBILE)
       }
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
@@ -890,28 +860,20 @@ function App() {
           .catch((err) => console.warn('[camera] Could not reset zoom:', err.message))
       }
 
-      const settings = track?.getSettings?.() || {}
-      setTrackInfo({
-        preset: camPresetRef.current,
-        width: settings.width,
-        height: settings.height,
-        aspectRatio: settings.aspectRatio,
-        zoom: settings.zoom,
-        resizeMode: settings.resizeMode,
-        zoomRange: capabilities.zoom
-          ? `${capabilities.zoom.min}-${capabilities.zoom.max}`
-          : 'not supported'
-      })
-
       if (DEBUG_CAMERA) {
+        const settings = track?.getSettings?.() || {}
         const { w: targetWidth, h: targetHeight } = getBoothSize(isVerticalRef.current)
         const sW = settings.width || targetWidth
         const sH = settings.height || targetHeight
+        const aspectRatio = typeof settings.aspectRatio === 'number'
+          ? settings.aspectRatio.toFixed(2)
+          : 'n/a'
         const cover = computeCoverRect(sW, sH, targetWidth, targetHeight)
         const pW = Math.round(cover.renderW * getPersonZoom(isVerticalRef.current))
         const pH = Math.round(cover.renderH * getPersonZoom(isVerticalRef.current))
         setDebugCamera({
           source: `${sW}×${sH}`,
+          aspectRatio,
           canvas: `${targetWidth}×${targetHeight}`,
           personFrame: `${pW}×${pH}`,
           personTop: Math.round(targetHeight - pH),
@@ -963,15 +925,6 @@ function App() {
     segmentationMaskRef.current = null
     setIsCountingDown(false)
     setCountdown(null)
-  }
-
-  const handleCamPresetChange = (n) => {
-    if (n === camPresetRef.current) return
-    camPresetRef.current = n
-    setCamPreset(n)
-    stopCamera()
-    // Give the old track a moment to release before reopening the camera.
-    setTimeout(() => startCamera(), 150)
   }
 
   // The Google Translate widget is mounted outside React (see index.html) and
@@ -1223,8 +1176,6 @@ function App() {
     )
   }
 
-  const trackInfoLine = formatTrackInfo(trackInfo)
-
   // View: Camera & Photo Booth
   return (
     <div className={`gender-detection-page ${isVertical ? 'booth-vertical-screen' : 'booth-horizontal-screen'}`}>
@@ -1234,6 +1185,7 @@ function App() {
       {DEBUG_CAMERA && debugCamera && (
         <div className="camera-debug-badge">
           <span>camera {debugCamera.source}</span>
+          <span>aspect {debugCamera.aspectRatio}</span>
           <span>canvas {debugCamera.canvas}</span>
           <span>person {debugCamera.personFrame} @ y={debugCamera.personTop}</span>
           <span>zoom {debugCamera.zoom}</span>
@@ -1313,25 +1265,6 @@ function App() {
                 </>
               )}
             </div>
-
-            {SHOW_CAM_TESTER && isVertical && IS_MOBILE && !capturedImage && (
-              <div className="cam-tester">
-                <span className="cam-tester-label">Camera test</span>
-                <div className="cam-tester-buttons">
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      className={`cam-tester-btn${camPreset === n ? ' active' : ''}`}
-                      onClick={() => handleCamPresetChange(n)}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-                <div className="cam-tester-info">{trackInfoLine}</div>
-              </div>
-            )}
 
             {/* Controls bar */}
             <div className="booth-controls-toolbar">
