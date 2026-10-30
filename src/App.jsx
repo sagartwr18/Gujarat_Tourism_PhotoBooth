@@ -486,31 +486,26 @@ function LandingPage({ onStart, isVertical }) {
 function InstructionsPage({ onBack, onProceed, isVertical }) {
   return (
     <div className={`instructions-clean-page page-transition ${isVertical ? 'orientation-vertical' : 'orientation-horizontal'}`}>
-      {/* Top Navbar matching brand identity */}
+      {/* Top Navbar mirroring the landing page pill */}
       <nav className="instructions-navbar">
-        <div className="navbar-left">
-          <div className="navbar-brand-text">
-            <span className="brand-title">GUJARAT TOURISM</span>
-            <span className="brand-tagline">Land of Legends</span>
-          </div>
-        </div>
+        <LandingLogo />
 
-        <div className="navbar-right">
-          <button className="selector-back-button" onClick={onBack} title="Go Back">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="19" y1="12" x2="5" y2="12"></line>
-              <polyline points="12 19 5 12 12 5"></polyline>
-            </svg>
-            <span>Back</span>
-          </button>
-        </div>
+        <button className="selector-back-button" onClick={onBack} title="Go Back">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          <span>Back</span>
+        </button>
       </nav>
 
       {/* Main Instructions Card Container */}
       <main className="instructions-content-wrap">
         <div className="instructions-clean-card">
           <div className="instructions-clean-header">
-            <h1 className="instructions-clean-title">How It Works</h1>
+            <h1 className="instructions-clean-title">
+              How It <span>Works</span>
+            </h1>
             <p className="instructions-clean-subtitle">
               Create your personalized Gujarat keepsake in 4 simple steps
             </p>
