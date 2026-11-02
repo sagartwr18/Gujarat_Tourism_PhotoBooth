@@ -500,10 +500,6 @@ body {
 
 .instructions-clean-title span {
   color: var(--poster-saffron);
-  background-image: linear-gradient(90deg, rgba(245, 158, 11, 0.55), rgba(234, 88, 12, 0.22));
-  background-repeat: no-repeat;
-  background-size: 100% 0.14em;
-  background-position: 0 88%;
 }
 
 .instructions-clean-subtitle {
@@ -775,10 +771,6 @@ body {
 
 .selector-title span {
   color: #ea580c;
-  background-image: linear-gradient(90deg, rgba(245, 158, 11, 0.55), rgba(234, 88, 12, 0.22));
-  background-repeat: no-repeat;
-  background-size: 100% 0.14em;
-  background-position: 0 88%;
 }
 
 .selector-back-button {
@@ -2185,10 +2177,6 @@ body {
 .poster-title span {
   white-space: nowrap;
   color: var(--poster-saffron);
-  background-image: linear-gradient(90deg, rgba(245, 158, 11, 0.55), rgba(234, 88, 12, 0.22));
-  background-repeat: no-repeat;
-  background-size: 100% 0.14em;
-  background-position: 0 88%;
 }
 
 .poster-description {
