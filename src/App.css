@@ -854,12 +854,24 @@ body {
   position: relative;
   overflow: hidden;
   background: #f1e6d4;
+  /* Promote the clipping box to its own layer. WebKit otherwise sometimes
+     fails to rasterise an image inside a rounded, overflow-hidden parent. */
+  isolation: isolate;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
 }
 
 .card-image-wrap img {
+  /* Absolute positioning means Safari no longer has to resolve
+     height: 100% against an aspect-ratio box (it can compute 0 and then
+     never load the image). */
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
   transition: transform 0.45s ease;
 }
 

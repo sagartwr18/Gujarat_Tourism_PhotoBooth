@@ -14,10 +14,32 @@ const PERSON_ZOOM_HORIZONTAL = 1.0
 const getPersonZoom = (vertical) => (vertical ? PERSON_ZOOM_VERTICAL : PERSON_ZOOM_HORIZONTAL)
 
 // Detect mobile devices so we can adapt the AI model, camera constraints,
-// and render loop accordingly.
-const IS_MOBILE =
+// and render loop accordingly. iPadOS 13+ reports itself as "MacIntel", so
+// touch points are the only reliable way to tell it apart from a Mac.
+const IS_IPAD =
   typeof navigator !== 'undefined' &&
-  /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+  /Mac/.test(navigator.platform) &&
+  navigator.maxTouchPoints > 1
+
+const IS_MOBILE =
+  IS_IPAD ||
+  (typeof navigator !== 'undefined' &&
+    /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent))
+
+// WebKit silently ignores ctx.filter on some Safari builds. Test it by writing
+// and reading the property back instead of trusting the prototype.
+const supportsCanvasFilter = () => {
+  if (typeof document === 'undefined') return false
+  try {
+    const ctx = document.createElement('canvas').getContext('2d')
+    if (!ctx) return false
+    ctx.filter = 'blur(1px)'
+    return ctx.filter === 'blur(1px)'
+  } catch {
+    return false
+  }
+}
+const CANVAS_FILTER_SUPPORTED = supportsCanvasFilter()
 
 // Append ?debug=1 to the URL to print the camera mode and the person frame
 // geometry on screen. Handy on a kiosk, where the browser console is not
@@ -236,6 +258,14 @@ export const getDestinationImagePath = (dest, isVertical) => {
   if (!dest) return ''
   const folder = isVertical ? 'Vertical HD' : 'Horizontal HD'
   return `/destinations/${encodeURIComponent(folder)}/${dest.file}`
+}
+
+// Small WebP copies used only by the picker grid. The booth keeps using the
+// full-size HD files above for the canvas and the CSS background layer.
+export const getDestinationThumbPath = (dest, isVertical) => {
+  if (!dest) return ''
+  const folder = isVertical ? 'Vertical' : 'Horizontal'
+  return `/destinations/Thumbs/${folder}/${dest.file}`
 }
 
 // Landing page slides use the enhanced hero images in their own folder.
@@ -602,7 +632,7 @@ function BackgroundSelector({ onSelect, onBack, initialSelectedId, isVertical })
       <div className={`background-grid ${isVertical ? 'grid-vertical' : 'grid-horizontal'}`}>
         {GUJARAT_DESTINATIONS.map((dest) => {
           const isSelected = selectedDest?.id === dest.id
-          const imageSrc = getDestinationImagePath(dest, isVertical)
+          const imageSrc = getDestinationThumbPath(dest, isVertical)
 
           return (
             <div
@@ -611,7 +641,22 @@ function BackgroundSelector({ onSelect, onBack, initialSelectedId, isVertical })
               onClick={() => handleCardClick(dest)}
             >
               <div className="card-image-wrap">
-                <img src={imageSrc} alt={dest.name} loading="lazy" />
+                <img
+                  src={imageSrc}
+                  alt={dest.name}
+                  loading="eager"
+                  decoding="async"
+                  width={420}
+                  height={isVertical ? 747 : 236}
+                  onError={(e) => {
+                    // Safari occasionally drops a single image request; retry
+                    // once with a cache-buster instead of leaving a blank card.
+                    const el = e.currentTarget
+                    if (el.dataset.retried) return
+                    el.dataset.retried = '1'
+                    el.src = `${imageSrc}?r=1`
+                  }}
+                />
                 {isSelected && (
                   <div className="selected-check">
                     <span>✓ Selected</span>
@@ -642,6 +687,9 @@ function App() {
   const segmentationBusyRef = useRef(false)
   const segmentationMaskRef = useRef(null)
   const renderFrameRef = useRef(null)
+  const captureCanvasRef = useRef(null)
+  const startingRef = useRef(false)
+  const cameraRequestIdRef = useRef(0)
   const isCameraOpenRef = useRef(false)
   const backgroundImageRef = useRef(null)
   const countdownIntervalRef = useRef(null)
@@ -665,6 +713,8 @@ function App() {
   const [selectorSource, setSelectorSource] = useState('instructions')
   const [selectedDestination, setSelectedDestination] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isSegmentationReady, setIsSegmentationReady] = useState(false)
+  const [segmentationError, setSegmentationError] = useState(null)
   const [error, setError] = useState(null)
   const [capturedImage, setCapturedImage] = useState(null)
   const [email, setEmail] = useState('')
@@ -710,6 +760,7 @@ function App() {
   useEffect(() => {
     let mounted = true
     setIsLoading(true)
+    setSegmentationError(null)
 
     const loadScript = (src) =>
       new Promise((resolve, reject) => {
@@ -748,17 +799,41 @@ function App() {
         })
 
         model.onResults((results) => {
+          if (!mounted) return
           segmentationMaskRef.current = results.segmentationMask
           segmentationBusyRef.current = false
+          // A real mask means the graph is warm and cut-outs can be drawn.
+          setIsSegmentationReady(true)
         })
+
+        // Fetch and compile the wasm/model up front. send() rejects until the
+        // graph is initialised, which is what left Safari with no cut-out at
+        // all while the canvas quietly fell back to the raw camera.
+        if (typeof model.initialize === 'function') {
+          await model.initialize()
+        }
+
+        if (!mounted) {
+          try {
+            model.close()
+          } catch {
+            // Graph was already torn down.
+          }
+          return
+        }
 
         segmentationModelRef.current = model
         segmentationReadyRef.current = true
         setIsLoading(false)
       } catch (err) {
         console.error('Error loading segmentation model:', err)
+        if (!mounted) return
         segmentationReadyRef.current = false
+        setIsSegmentationReady(false)
         setIsLoading(false)
+        setSegmentationError(
+          'AI background removal could not start on this browser. Please reload the page, or try again in Chrome or Safari.'
+        )
       }
     }
 
@@ -766,6 +841,15 @@ function App() {
 
     return () => {
       mounted = false
+      segmentationReadyRef.current = false
+      segmentationBusyRef.current = false
+      segmentationMaskRef.current = null
+      try {
+        segmentationModelRef.current?.close?.()
+      } catch {
+        // Graph was already torn down.
+      }
+      segmentationModelRef.current = null
     }
   }, [])
 
@@ -776,14 +860,56 @@ function App() {
       return
     }
 
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      backgroundImageRef.current = img
+    const src = getDestinationImagePath(selectedDestination, isVertical)
+    let cancelled = false
+    let retryTimeout = null
+    let attempt = 0
+
+    const load = () => {
+      if (cancelled) return
+
+      attempt += 1
+      const img = new Image()
+      let applied = false
+
+      const apply = async () => {
+        if (applied || cancelled) return
+        applied = true
+        try {
+          // Safari only guarantees the bitmap is drawable once decode() settles.
+          if (typeof img.decode === 'function') await img.decode()
+        } catch {
+          // decode() can reject on WebKit even when the bitmap is usable;
+          // naturalWidth below is the real test.
+        }
+        if (!cancelled && img.naturalWidth) {
+          backgroundImageRef.current = img
+        }
+      }
+
+      img.onload = apply
+      img.onerror = () => {
+        applied = true
+        if (cancelled) return
+        if (attempt < 3) {
+          // A dropped request is the usual Safari failure; retry briefly.
+          retryTimeout = setTimeout(load, 500)
+        } else {
+          backgroundImageRef.current = null
+          console.warn('[booth] Could not load background image:', src)
+        }
+      }
+
+      // Cache-bust retries so the failed entry isn't reused.
+      img.src = attempt === 1 ? src : `${src}?retry=${attempt}`
+      if (img.complete && img.naturalWidth) apply()
     }
-    img.src = getDestinationImagePath(selectedDestination, isVertical)
-    if (img.complete && img.naturalWidth !== 0) {
-      backgroundImageRef.current = img
+
+    load()
+
+    return () => {
+      cancelled = true
+      if (retryTimeout) clearTimeout(retryTimeout)
     }
   }, [selectedDestination, isVertical])
 
@@ -826,10 +952,10 @@ function App() {
         targetHeight
       )
       compositeCtx.drawImage(selectedBgImage, c.offsetX, 0, c.renderW, c.renderH)
-    } else {
-      compositeCtx.fillStyle = '#0f172a'
-      compositeCtx.fillRect(0, 0, targetWidth, targetHeight)
     }
+    // If the bitmap is not ready yet, leave the canvas transparent so the
+    // .background-overlay layer (z-index 1) shows the landmark instead. An
+    // opaque fill here would cover it and leave a black preview on slow links.
 
     const vW = video.videoWidth || targetWidth
     const vH = video.videoHeight || targetHeight
@@ -848,16 +974,16 @@ function App() {
     // 3. Cutout and composite the user onto the landmark (mirrored like a selfie mirror)
     if (mask) {
       personCtx.clearRect(0, 0, targetWidth, targetHeight)
-      personCtx.filter = 'blur(1px)'
+      if (CANVAS_FILTER_SUPPORTED) personCtx.filter = 'blur(1px)'
       drawMirroredCover(personCtx, mask, personX, personY, personW, personH, targetWidth)
-      personCtx.filter = 'none'
+      if (CANVAS_FILTER_SUPPORTED) personCtx.filter = 'none'
       personCtx.globalCompositeOperation = 'source-in'
       drawMirroredCover(personCtx, video, personX, personY, personW, personH, targetWidth)
       personCtx.globalCompositeOperation = 'source-over'
       compositeCtx.drawImage(personCanvas, 0, 0, targetWidth, targetHeight)
     } else {
-      // While AI initializes, draw the video over the canvas at 100%
-      drawMirroredCover(compositeCtx, video, personX, personY, personW, personH, targetWidth)
+      // No mask yet (the AI is still warming up, or it never started).
+      // Keep the landmark visible: never paint the raw camera over it.
     }
   }
 
@@ -894,11 +1020,8 @@ function App() {
         .catch((err) => {
           console.error('Segmentation frame failed:', err)
           segmentationBusyRef.current = false
-          // On mobile, keep the last good mask instead of clearing it,
-          // so the background remains visible even if a single frame errors.
-          if (!IS_MOBILE) {
-            segmentationMaskRef.current = null
-          }
+          // Keep the last good mask on every platform so one dropped frame
+          // never flashes the landmark away.
         })
     }
 
@@ -906,8 +1029,25 @@ function App() {
   }
 
   const startCamera = async () => {
+    // The auto-start effect, Retake, and the orientation effect can all ask for
+    // a camera at once. Without this guard each call opens a second
+    // getUserMedia stream that is never stopped.
+    if (startingRef.current) return
+    startingRef.current = true
+    const requestId = ++cameraRequestIdRef.current
+
     try {
       setError(null)
+
+      // Tear down any previous stream and loop before opening a new one.
+      if (renderFrameRef.current) {
+        cancelAnimationFrame(renderFrameRef.current)
+        renderFrameRef.current = null
+      }
+      if (videoRef.current?.srcObject) {
+        videoRef.current.srcObject.getTracks().forEach((track) => track.stop())
+        videoRef.current.srcObject = null
+      }
 
       // Build the video constraints for the current orientation and device
       const constraints = {
@@ -915,6 +1055,12 @@ function App() {
       }
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
+
+      // The visitor may have navigated away while the permission prompt was up.
+      if (requestId !== cameraRequestIdRef.current) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
 
       // Some webcams ship with a digital zoom applied, which crops the frame
       // and cuts heads off. Reset it to the widest setting when the camera
@@ -948,20 +1094,45 @@ function App() {
         })
       }
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        setIsCameraOpen(true)
-        isCameraOpenRef.current = true
-        setCapturedImage(null)
-        segmentationMaskRef.current = null
+      if (!videoRef.current) {
+        // The booth unmounted between the permission prompt and the stream.
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
 
-        videoRef.current.onloadedmetadata = () => {
-          runFrameLoop()
+      videoRef.current.onloadedmetadata = null
+      videoRef.current.srcObject = stream
+      setIsCameraOpen(true)
+      isCameraOpenRef.current = true
+      setCapturedImage(null)
+      // A new stream needs a fresh mask before capture is allowed again.
+      segmentationMaskRef.current = null
+      setIsSegmentationReady(false)
+
+      // Registered once per stream, not once per call.
+      videoRef.current.onloadedmetadata = () => {
+        const video = videoRef.current
+        if (!video || !isCameraOpenRef.current) return
+
+        // Safari can leave a freshly assigned video paused.
+        const playPromise = video.play()
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch(() => {})
         }
+
+        if (renderFrameRef.current) {
+          cancelAnimationFrame(renderFrameRef.current)
+          renderFrameRef.current = null
+        }
+        runFrameLoop()
       }
     } catch (err) {
       console.error('Error accessing camera:', err)
       setError('Unable to access your camera. Please ensure camera permissions are allowed in your browser settings.')
+    } finally {
+      if (requestId === cameraRequestIdRef.current) {
+        startingRef.current = false
+      }
     }
   }
 
@@ -978,6 +1149,12 @@ function App() {
 
   const stopCamera = () => {
     clearCountdownTimers()
+    // Invalidate any getUserMedia call still in flight and unblock future ones.
+    cameraRequestIdRef.current += 1
+    startingRef.current = false
+    if (videoRef.current) {
+      videoRef.current.onloadedmetadata = null
+    }
     if (videoRef.current && videoRef.current.srcObject) {
       const tracks = videoRef.current.srcObject.getTracks()
       tracks.forEach((track) => track.stop())
@@ -990,6 +1167,7 @@ function App() {
     setIsCameraOpen(false)
     isCameraOpenRef.current = false
     segmentationMaskRef.current = null
+    setIsSegmentationReady(false)
     setIsCountingDown(false)
     setCountdown(null)
   }
@@ -1032,7 +1210,10 @@ function App() {
     setTimeout(() => setIsFlashActive(false), 300)
 
     const sourceCanvas = compositeCanvasRef.current
-    const framedCanvas = document.createElement('canvas')
+    // Reuse one canvas: allocating a new full-size bitmap on every capture is
+    // a large, avoidable memory spike on Safari.
+    const framedCanvas = captureCanvasRef.current || document.createElement('canvas')
+    captureCanvasRef.current = framedCanvas
     framedCanvas.width = sourceCanvas.width
     framedCanvas.height = sourceCanvas.height
     const framedCtx = framedCanvas.getContext('2d')
@@ -1065,6 +1246,9 @@ function App() {
 
   // Countdown Handler
   const startCountdownAndCapture = () => {
+    // Never capture a frame the AI hasn't processed: the result would be the
+    // landmark on its own.
+    if (!isSegmentationReady) return
     clearCountdownTimers()
     setIsCountingDown(true)
     setCountdown(3)
@@ -1175,10 +1359,11 @@ function App() {
   const handleBackFromSelector = () => {
     setShowBackgroundSelector(false)
     if (selectorSource === 'camera') {
-      startCamera()
-    } else {
-      setShowInstructions(true)
+      // Returning to the booth: the auto-start effect is the single place that
+      // opens the camera, so it can never be opened twice.
+      return
     }
+    setShowInstructions(true)
   }
 
   const handleBackFromCamera = () => {
@@ -1205,7 +1390,7 @@ function App() {
   const handleBackgroundSelect = (dest) => {
     setSelectedDestination(dest)
     setShowBackgroundSelector(false)
-    startCamera()
+    // The auto-start effect opens the camera once the booth view is shown.
   }
 
   // View: Landing Page
@@ -1297,6 +1482,13 @@ function App() {
           </div>
         )}
 
+        {segmentationError && (
+          <div className="error-message">
+            <span className="error-icon">⚠️</span>
+            <span>{segmentationError}</span>
+          </div>
+        )}
+
         <div className="booth-main-container">
           <div className={`camera-card ${isVertical ? 'card-vertical' : 'card-horizontal'}`}>
             <div className={`camera-preview ${isVertical ? 'preview-vertical' : 'preview-horizontal'}${isVertical && IS_MOBILE ? ' preview-phone' : ''}`}>
@@ -1305,6 +1497,13 @@ function App() {
                 <div className="countdown-hint" role="status" aria-live="polite">
                   <span className="countdown-hint-dot" aria-hidden="true"></span>
                   <span>Look at the camera…</span>
+                </div>
+              )}
+
+              {!capturedImage && isCameraOpen && !isSegmentationReady && !segmentationError && (
+                <div className="countdown-hint" role="status" aria-live="polite">
+                  <span className="countdown-hint-dot" aria-hidden="true"></span>
+                  <span>Preparing AI…</span>
                 </div>
               )}
 
@@ -1341,7 +1540,8 @@ function App() {
                   <button
                     onClick={startCountdownAndCapture}
                     className={`take-photo-btn primary-glow${isCountingDown ? ' is-counting' : ''}`}
-                    disabled={isCountingDown}
+                    disabled={isCountingDown || !isSegmentationReady}
+                    title={isSegmentationReady ? undefined : 'Preparing AI…'}
                   >
                     {isCountingDown ? (
                       <>
