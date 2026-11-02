@@ -41,6 +41,16 @@ const supportsCanvasFilter = () => {
 }
 const CANVAS_FILTER_SUPPORTED = supportsCanvasFilter()
 
+// Segmentation mask health checks.
+//
+// MediaPipe hands the mask back as a GPU-backed canvas/bitmap. Some WebKit
+// builds lose its alpha channel (or return a solid bitmap), which turns
+// `source-in` into a no-op and paints the whole camera frame over the landmark.
+// Sampling a tiny copy tells us which channel actually carries the cut-out.
+const MASK_SAMPLE_SIZE = 32
+const MASK_MATTE_MAX = 320
+const MASK_FG_LIMIT = 0.97
+
 // Append ?debug=1 to the URL to print the camera mode and the person frame
 // geometry on screen. Handy on a kiosk, where the browser console is not
 // reachable. Hidden by default.
@@ -692,6 +702,9 @@ function App() {
   const cameraRequestIdRef = useRef(0)
   const isCameraOpenRef = useRef(false)
   const backgroundImageRef = useRef(null)
+  const maskSampleRef = useRef(null)
+  const maskMatteRef = useRef(null)
+  const maskDebugRef = useRef({ mode: null, at: 0 })
   const countdownIntervalRef = useRef(null)
   const countdownTimeoutRef = useRef(null)
 
@@ -722,6 +735,7 @@ function App() {
   const [emailStatusType, setEmailStatusType] = useState('idle')
   const [isSendingEmail, setIsSendingEmail] = useState(false)
   const [debugCamera, setDebugCamera] = useState(null)
+  const [debugMask, setDebugMask] = useState(null)
 
   // Countdown timer state
   const [countdown, setCountdown] = useState(null)
@@ -747,6 +761,136 @@ function App() {
   useEffect(() => {
     personCanvasRef.current = document.createElement('canvas')
   }, [])
+
+  // Which channel carries the cut-out, and how much of the frame it covers.
+  // Returns null when the mask cannot be sampled (released/tainted bitmap).
+  const analyzeSegmentationMask = (mask) => {
+    const width = mask?.width || 0
+    const height = mask?.height || 0
+    if (!width || !height) return null
+
+    let sample = maskSampleRef.current
+    if (!sample) {
+      const canvas = document.createElement('canvas')
+      canvas.width = MASK_SAMPLE_SIZE
+      canvas.height = MASK_SAMPLE_SIZE
+      sample = { canvas, ctx: canvas.getContext('2d', { willReadFrequently: true }) }
+      maskSampleRef.current = sample
+    }
+
+    let pixels
+    try {
+      sample.ctx.clearRect(0, 0, MASK_SAMPLE_SIZE, MASK_SAMPLE_SIZE)
+      sample.ctx.drawImage(mask, 0, 0, MASK_SAMPLE_SIZE, MASK_SAMPLE_SIZE)
+      pixels = sample.ctx.getImageData(0, 0, MASK_SAMPLE_SIZE, MASK_SAMPLE_SIZE).data
+    } catch {
+      // Tainted or already-released bitmap: keep the last good mask.
+      return null
+    }
+
+    let alphaMin = 255
+    let alphaMax = 0
+    let lumMin = 255
+    let lumMax = 0
+    let alphaFg = 0
+    let lumFg = 0
+
+    for (let i = 0; i < pixels.length; i += 4) {
+      const alpha = pixels[i + 3]
+      const lum = (pixels[i] * 299 + pixels[i + 1] * 587 + pixels[i + 2] * 114) / 1000
+
+      if (alpha < alphaMin) alphaMin = alpha
+      if (alpha > alphaMax) alphaMax = alpha
+      if (lum < lumMin) lumMin = lum
+      if (lum > lumMax) lumMax = lum
+      if (alpha >= 128) alphaFg += 1
+      if (lum >= 128) lumFg += 1
+    }
+
+    const count = pixels.length / 4
+    const alphaContrast = alphaMax - alphaMin
+    const lumContrast = lumMax - lumMin
+    let mode
+    let fg
+
+    if (alphaContrast > 8) {
+      // Healthy mask: the cut-out is already in the alpha channel.
+      mode = 'alpha'
+      fg = alphaFg / count
+    } else if (alphaMax < 24) {
+      // A fully transparent mask is normally an empty frame. Only rebuild from
+      // luminance when the contrast is strong enough to be a real subject.
+      mode = lumContrast >= 160 ? 'lum' : 'empty'
+      fg = mode === 'lum' ? lumFg / count : 0
+    } else {
+      // Opaque mask with no alpha contrast: exactly what a lost alpha channel
+      // looks like. Rebuild from luminance when the matte is still in there.
+      mode = lumContrast >= 32 ? 'lum' : 'opaque'
+      fg = mode === 'lum' ? lumFg / count : 1
+    }
+
+    return {
+      mode,
+      fg,
+      width,
+      height,
+      alpha: `${alphaMin}-${alphaMax}`,
+      lum: `${Math.round(lumMin)}-${Math.round(lumMax)}`
+    }
+  }
+
+  // Rebuild a real alpha matte from a mask that only carries luminance. The
+  // matte has the booth aspect, so it maps 1:1 onto the person rect, and it is
+  // only a few hundred pixels wide — the cut-out is soft, not blocky.
+  const buildLuminanceMatte = (mask, targetWidth, targetHeight) => {
+    const scale = MASK_MATTE_MAX / Math.max(targetWidth, targetHeight)
+    const w = Math.max(1, Math.round(targetWidth * scale))
+    const h = Math.max(1, Math.round(targetHeight * scale))
+
+    let matte = maskMatteRef.current
+    if (!matte) {
+      matte = document.createElement('canvas')
+      maskMatteRef.current = matte
+    }
+    if (matte.width !== w || matte.height !== h) {
+      matte.width = w
+      matte.height = h
+    }
+
+    const ctx = matte.getContext('2d', { willReadFrequently: true })
+    ctx.clearRect(0, 0, w, h)
+    // Stretch, not cover-crop: the camera frame is stretched onto the person
+    // rect below, so the matte has to follow the exact same mapping.
+    ctx.drawImage(mask, 0, 0, w, h)
+
+    let image
+    try {
+      image = ctx.getImageData(0, 0, w, h)
+    } catch {
+      return null
+    }
+
+    const data = image.data
+    for (let i = 0; i < data.length; i += 4) {
+      const lum = (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000
+      data[i] = 255
+      data[i + 1] = 255
+      data[i + 2] = 255
+      data[i + 3] = lum
+    }
+    ctx.putImageData(image, 0, 0)
+    return matte
+  }
+
+  // The debug badge must not re-render 20 times a second.
+  const reportMaskDebug = (stats) => {
+    const now = performance.now()
+    const mode = stats?.mode || 'none'
+    const last = maskDebugRef.current
+    if (mode === last.mode && now - last.at < 1000) return
+    maskDebugRef.current = { mode, at: now }
+    setDebugMask(stats)
+  }
 
   // Clean up countdown timers if the component unmounts mid-countdown
   useEffect(() => {
@@ -800,10 +944,53 @@ function App() {
 
         model.onResults((results) => {
           if (!mounted) return
-          segmentationMaskRef.current = results.segmentationMask
           segmentationBusyRef.current = false
-          // A real mask means the graph is warm and cut-outs can be drawn.
-          setIsSegmentationReady(true)
+
+          const mask = results.segmentationMask
+          const stats = analyzeSegmentationMask(mask)
+          if (DEBUG_CAMERA) reportMaskDebug(stats)
+
+          if (!stats) {
+            // Unsampleable bitmap: keep the last good mask rather than dropping
+            // the cut-out for a frame.
+            return
+          }
+
+          if (stats.fg > MASK_FG_LIMIT) {
+            // The mask claims the whole frame is a person. That is what a
+            // broken WebKit mask looks like, and drawing it would hide the
+            // landmark. Refuse it and stay in "Preparing AI…".
+            segmentationMaskRef.current = null
+            setIsSegmentationReady(false)
+            return
+          }
+
+          if (stats.mode === 'alpha') {
+            segmentationMaskRef.current = mask
+            setIsSegmentationReady(true)
+            return
+          }
+
+          if (stats.mode === 'lum') {
+            const { w, h } = getBoothSize(isVerticalRef.current)
+            const matte = buildLuminanceMatte(mask, w, h)
+            if (matte) {
+              segmentationMaskRef.current = matte
+              setIsSegmentationReady(true)
+              return
+            }
+          }
+
+          if (stats.mode === 'empty') {
+            // Camera is running but nobody is in shot.
+            segmentationMaskRef.current = null
+            setIsSegmentationReady(true)
+            return
+          }
+
+          // Opaque/degenerate mask. Never paint the raw camera over the landmark.
+          segmentationMaskRef.current = null
+          setIsSegmentationReady(false)
         })
 
         // Fetch and compile the wasm/model up front. send() rejects until the
@@ -973,17 +1160,26 @@ function App() {
 
     // 3. Cutout and composite the user onto the landmark (mirrored like a selfie mirror)
     if (mask) {
-      personCtx.clearRect(0, 0, targetWidth, targetHeight)
-      if (CANVAS_FILTER_SUPPORTED) personCtx.filter = 'blur(1px)'
-      drawMirroredCover(personCtx, mask, personX, personY, personW, personH, targetWidth)
-      if (CANVAS_FILTER_SUPPORTED) personCtx.filter = 'none'
-      personCtx.globalCompositeOperation = 'source-in'
-      drawMirroredCover(personCtx, video, personX, personY, personW, personH, targetWidth)
-      personCtx.globalCompositeOperation = 'source-over'
-      compositeCtx.drawImage(personCanvas, 0, 0, targetWidth, targetHeight)
+      try {
+        personCtx.clearRect(0, 0, targetWidth, targetHeight)
+        if (CANVAS_FILTER_SUPPORTED) personCtx.filter = 'blur(1px)'
+        drawMirroredCover(personCtx, mask, personX, personY, personW, personH, targetWidth)
+        if (CANVAS_FILTER_SUPPORTED) personCtx.filter = 'none'
+        personCtx.globalCompositeOperation = 'source-in'
+        drawMirroredCover(personCtx, video, personX, personY, personW, personH, targetWidth)
+        personCtx.globalCompositeOperation = 'source-over'
+        compositeCtx.drawImage(personCanvas, 0, 0, targetWidth, targetHeight)
+      } catch (err) {
+        // A mask that WebKit already released must not leave a half-painted
+        // frame. Clearing the person layer keeps the landmark visible.
+        personCtx.globalCompositeOperation = 'source-over'
+        personCtx.filter = 'none'
+        personCtx.clearRect(0, 0, targetWidth, targetHeight)
+        console.warn('[booth] Skipped a bad segmentation frame:', err?.message || err)
+      }
     } else {
-      // No mask yet (the AI is still warming up, or it never started).
-      // Keep the landmark visible: never paint the raw camera over it.
+      // No usable mask yet (the AI is still warming up, or it returned a
+      // degenerate one). Keep the landmark visible: never paint the raw camera.
     }
   }
 
@@ -995,37 +1191,44 @@ function App() {
   const SEG_INTERVAL_MS = IS_MOBILE ? 50 : 0 // 50 ms ≈ 20 FPS on mobile
 
   const runFrameLoop = () => {
-    const video = videoRef.current
-    if (!video || !isCameraOpenRef.current) return
+    try {
+      const video = videoRef.current
+      if (!video || !isCameraOpenRef.current) return
 
-    if (!video.videoWidth || !video.videoHeight) {
-      renderFrameRef.current = requestAnimationFrame(runFrameLoop)
-      return
+      if (!video.videoWidth || !video.videoHeight) return
+
+      drawCompositedFrame(video)
+
+      const now = performance.now()
+      const canSend =
+        segmentationReadyRef.current &&
+        segmentationModelRef.current &&
+        !segmentationBusyRef.current &&
+        now - lastSegTimeRef.current >= SEG_INTERVAL_MS
+
+      if (canSend) {
+        segmentationBusyRef.current = true
+        lastSegTimeRef.current = now
+        segmentationModelRef.current
+          .send({ image: video })
+          .catch((err) => {
+            console.error('Segmentation frame failed:', err)
+            segmentationBusyRef.current = false
+            // Keep the last good mask on every platform so one dropped frame
+            // never flashes the landmark away.
+          })
+      }
+    } catch (err) {
+      // A single bad frame must never kill the preview for good.
+      console.warn('[booth] Frame loop error:', err?.message || err)
+    } finally {
+      // Always re-arm while the booth is open, including after an error.
+      if (isCameraOpenRef.current && videoRef.current) {
+        renderFrameRef.current = requestAnimationFrame(runFrameLoop)
+      } else {
+        renderFrameRef.current = null
+      }
     }
-
-    drawCompositedFrame(video)
-
-    const now = performance.now()
-    const canSend =
-      segmentationReadyRef.current &&
-      segmentationModelRef.current &&
-      !segmentationBusyRef.current &&
-      now - lastSegTimeRef.current >= SEG_INTERVAL_MS
-
-    if (canSend) {
-      segmentationBusyRef.current = true
-      lastSegTimeRef.current = now
-      segmentationModelRef.current
-        .send({ image: video })
-        .catch((err) => {
-          console.error('Segmentation frame failed:', err)
-          segmentationBusyRef.current = false
-          // Keep the last good mask on every platform so one dropped frame
-          // never flashes the landmark away.
-        })
-    }
-
-    renderFrameRef.current = requestAnimationFrame(runFrameLoop)
   }
 
   const startCamera = async () => {
@@ -1434,13 +1637,26 @@ function App() {
       {/* Visual Shutter Flash */}
       {isFlashActive && <div className="camera-shutter-flash"></div>}
 
-      {DEBUG_CAMERA && debugCamera && (
+      {DEBUG_CAMERA && (debugCamera || debugMask) && (
         <div className="camera-debug-badge">
-          <span>camera {debugCamera.source}</span>
-          <span>aspect {debugCamera.aspectRatio}</span>
-          <span>canvas {debugCamera.canvas}</span>
-          <span>person {debugCamera.personFrame} @ y={debugCamera.personTop}</span>
-          <span>zoom {debugCamera.zoom}</span>
+          {debugCamera && (
+            <>
+              <span>camera {debugCamera.source}</span>
+              <span>aspect {debugCamera.aspectRatio}</span>
+              <span>canvas {debugCamera.canvas}</span>
+              <span>person {debugCamera.personFrame} @ y={debugCamera.personTop}</span>
+              <span>zoom {debugCamera.zoom}</span>
+            </>
+          )}
+          <span>
+            mask {debugMask ? debugMask.mode : 'waiting'} · fg {debugMask ? Math.round(debugMask.fg * 100) : 0}%
+          </span>
+          {debugMask && (
+            <>
+              <span>alpha {debugMask.alpha} · lum {debugMask.lum}</span>
+              <span>size {debugMask.width}×{debugMask.height}</span>
+            </>
+          )}
         </div>
       )}
 
